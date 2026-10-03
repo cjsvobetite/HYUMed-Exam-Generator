@@ -79,3 +79,39 @@ def test_completion_kwargs_per_model():
     assert llm.completion_kwargs("gpt-4-turbo", 16000, 0.4)["max_tokens"] == 4096
     assert llm.completion_kwargs("o3", 16000, 0.4) == {"model": "o3", "max_completion_tokens": 16000}
     assert "temperature" not in llm.completion_kwargs("gpt-5", 16000, 0.4)
+
+
+def test_transcript_only_option_reaches_prompts(monkeypatch):
+    import types
+
+    import question_generator
+    from prompt_loader import TRANSCRIPT_ONLY_RULE
+
+    sent = []
+
+    class FakeClient:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(messages, **kw):
+                    sent.append(messages)
+                    delta = types.SimpleNamespace(content="문제 1", )
+                    return iter([types.SimpleNamespace(
+                        choices=[types.SimpleNamespace(delta=delta, finish_reason="stop")])])
+
+    monkeypatch.setattr(question_generator, "get_client", lambda: FakeClient)
+
+    def run(transcript, flag):
+        sent.clear()
+        list(question_generator.generate_questions("슬라이드 내용", transcript, num_mcq=2,
+                                                   transcript_only=flag))
+        system, user = sent[0][0]["content"], sent[0][1]["content"]
+        return system, user
+
+    system, user = run("교수님 설명", True)
+    assert TRANSCRIPT_ONLY_RULE in system and TRANSCRIPT_ONLY_RULE in user
+    assert "전사본에 없는 내용은 출제 금지" in user
+    system, user = run("교수님 설명", False)
+    assert TRANSCRIPT_ONLY_RULE not in system + user
+    system, user = run("", True)               # 전사본이 없으면 옵션 무시
+    assert TRANSCRIPT_ONLY_RULE not in system + user

@@ -63,6 +63,7 @@ def generate_questions(
     term_lang_rule: str = "",
     past_exam_text: str = "",
     variation_mode: str = "",
+    transcript_only: bool = False,
 ):
     """
     Generator yielding (delta, full_text_so_far).
@@ -70,6 +71,7 @@ def generate_questions(
     term_lang_rule: 의학용어 표기 규칙 — system·user prompt 양쪽에 강제 주입.
     past_exam_text: 기출문제 원문 — 변형 모드 또는 범위 참고용. v2.17
     variation_mode: 변형 강도 ("유사 변형" / "적당한 변형" / "창의적 변형"). v2.17
+    transcript_only: True면 전사본에 언급된 내용만 출제 (전사본이 비어 있으면 무시).
     finish_reason='length'이면 자동으로 이어쓰기 호출 (최대 MAX_CONTINUATIONS회).
     gpt-4-turbo 등 TPM 한도가 낮은 모델은 입력을 자동으로 잘라 요청.
     """
@@ -103,9 +105,11 @@ def generate_questions(
             yield f"\n<!-- TRIM_NOTICE: {trimmed_notice} -->\n", trimmed_notice
 
     # answer_formats + term_lang_rule을 system_prompt에도 주입 (v2.16)
+    transcript_only = transcript_only and bool(transcript_text.strip())
     system_prompt = build_system_prompt(extra_instructions,
                                         answer_formats=answer_formats,
-                                        term_lang_rule=term_lang_rule)
+                                        term_lang_rule=term_lang_rule,
+                                        transcript_only=transcript_only)
     user_prompt = build_user_prompt(
         lecture_text, transcript_text,
         answer_formats, content_types,
@@ -113,6 +117,7 @@ def generate_questions(
         term_lang_rule=term_lang_rule,
         past_exam_text=past_exam_text,
         variation_mode=variation_mode,
+        transcript_only=transcript_only,
     )
     messages = [
         {"role": "system", "content": system_prompt},

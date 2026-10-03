@@ -115,6 +115,13 @@ def render() -> None:
             st.markdown("**내용 형식** (복수 선택)")
             content_types = [opt for i, opt in enumerate(CONTENT_TYPES)
                              if st.checkbox(opt, value=(i == 0), key=f"ct_{i}")]
+            st.markdown("**출제 범위**")
+            transcript_only = st.checkbox(
+                "전사본에서 언급하지 않은 내용은 출제에서 제외", key="gen_transcript_only",
+                disabled=not transcript_text,
+                help="교수님이 수업에서 실제로 말한 내용만 출제합니다. 강의 자료는 용어·수치 확인용으로만 씁니다. "
+                     "전사본을 올리거나 붙여넣어야 켤 수 있습니다.",
+            ) and bool(transcript_text)
             extra = st.text_area("추가 지시사항 (선택)", placeholder="예: 학습목표 중심으로 출제해줘",
                                  height=90, key="gen_extra")
 
@@ -143,13 +150,14 @@ def render() -> None:
         _generate(
             lecture_text, transcript_text, answer_formats, content_types, num_mcq, difficulty, extra,
             TERM_LANG_RULE[TERM_LANG_OPTIONS[term_label]], past_text, variation_mode, model,
+            transcript_only,
         )
 
     _results()
 
 
 def _generate(lecture_text, transcript_text, answer_formats, content_types, num_mcq, difficulty,
-              extra, term_rule, past_text, variation_mode, model) -> None:
+              extra, term_rule, past_text, variation_mode, model, transcript_only=False) -> None:
     full_text = ""
     progress = st.empty()
     with st.spinner(f"{model} 작업 중 (40문항 기준 1~3분)..."):
@@ -160,6 +168,7 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
                 num_mcq=num_mcq, num_short=0, difficulty=difficulty,
                 extra_instructions=extra, term_lang_rule=term_rule,
                 past_exam_text=past_text, variation_mode=variation_mode, model=model,
+                transcript_only=transcript_only,
             ):
                 if delta.startswith("\n<!-- TRIM_NOTICE"):
                     st.warning(full)

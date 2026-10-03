@@ -2,6 +2,16 @@ from pathlib import Path
 
 GUIDE_PATH = Path(__file__).resolve().parent / "prompts" / "exam_guide.md"
 
+# '전사본에서 언급하지 않은 내용 출제 제외' 옵션 — system·user prompt 양쪽에 넣는다
+TRANSCRIPT_ONLY_RULE = (
+    "**출제 범위는 강의 전사본에서 실제로 언급된 내용으로 한정한다.**\n"
+    "- 모든 문항의 정답 근거가 전사본 안에 있어야 한다. 전사본에 없고 강의 자료(슬라이드)에만 있는 내용, "
+    "일반 의학 지식으로만 알 수 있는 내용은 출제하지 말 것.\n"
+    "- 강의 자료는 전사본에 나온 내용의 용어·수치·표기를 확인하는 용도로만 쓴다.\n"
+    "- 오답 선지도 전사본에 나온 개념들로 구성하고, 해설에는 근거가 된 전사본 구절을 짧게 인용한다.\n"
+    "- 전사본 분량이 요청 문항 수에 비해 부족하면 같은 내용을 다른 각도로 묻되, 범위를 넓히지 말 것."
+)
+
 
 def load_exam_guide() -> str:
     if not GUIDE_PATH.exists():
@@ -9,7 +19,8 @@ def load_exam_guide() -> str:
     return GUIDE_PATH.read_text(encoding="utf-8")
 
 
-def build_system_prompt(extra: str = "", answer_formats=None, term_lang_rule: str = "") -> str:
+def build_system_prompt(extra: str = "", answer_formats=None, term_lang_rule: str = "",
+                        transcript_only: bool = False) -> str:
     guide = load_exam_guide()
 
     # ── 최우선 지시 블록 (exam_guide보다 앞 — 모델이 가장 먼저 읽음) ──
@@ -21,6 +32,13 @@ def build_system_prompt(extra: str = "", answer_formats=None, term_lang_rule: st
             "╚══════════════════════════════════════════════════╝\n"
             f"{term_lang_rule}\n"
             "발문·선지·해설·정답표 전체에 예외 없이 적용. 어기면 출제 오류.\n\n"
+        )
+    if transcript_only:
+        priority_block += (
+            "╔══════════════════════════════════════════════════╗\n"
+            "║  🔵  출제 범위 제한 — 전사본에 언급된 내용만  🔵  ║\n"
+            "╚══════════════════════════════════════════════════╝\n"
+            f"{TRANSCRIPT_ONLY_RULE}\n\n"
         )
     if extra.strip():
         priority_block += (
@@ -80,7 +98,8 @@ def build_user_prompt(lecture_text, transcript_text,
                      num_mcq, num_short, difficulty,
                      term_lang_rule: str = "",
                      past_exam_text: str = "",
-                     variation_mode: str = ""):
+                     variation_mode: str = "",
+                     transcript_only: bool = False):
     """answer_formats / content_types: list[str] (1개 이상).
     형식 강제 선언을 강의 내용보다 앞에 배치 → 모델이 exam_guide의 '유형 A 주력' 편향을
     배정표로 완전히 덮어쓰도록 강화. v2.17
@@ -116,7 +135,13 @@ def build_user_prompt(lecture_text, transcript_text,
         parts = [term_repeat, format_block]
     else:
         parts = [format_block]
-    if transcript_text.strip() and lecture_text.strip():
+    if transcript_only and transcript_text.strip():
+        parts.append("=== 🔵 출제 범위 제한 ===\n" + TRANSCRIPT_ONLY_RULE)
+        parts.append(f"=== 강의 전사본 (유일한 출제 범위 — 여기 언급된 내용만 출제) ===\n{transcript_text}")
+        if lecture_text.strip():
+            parts.append("=== 강의 자료 (용어·수치 확인용 — 전사본에 없는 내용은 출제 금지) ===\n"
+                         f"{lecture_text}")
+    elif transcript_text.strip() and lecture_text.strip():
         # 전사본 + 강의자료 모두 있을 때
         parts.append(f"=== 강의 전사본 (주 출제 범위 — 이 안의 내용을 우선 활용) ===\n{transcript_text}")
         parts.append(f"=== 강의 자료 (보조 참고용) ===\n{lecture_text}")
