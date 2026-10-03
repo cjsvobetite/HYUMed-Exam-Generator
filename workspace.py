@@ -3,9 +3,9 @@
   노트북(과목)  {id, name, emoji, units: [{id, name}], created_at}
   세트          {id, notebook_id, unit_id, kind: "exam"|"generated", title, n_questions, created_at, markdown}
 
-세트를 풀면 풀이 기록에 set_id와 문항별 정오(detail)·🔖(flagged)가 남는다.
+세트를 풀면 풀이 기록에 set_id와 문항별 정오(detail)·🚩 문항 표시(flagged)가 남는다.
 복습 세트를 풀면 sources({복습 문항 번호: [set_id, 원래 문항 번호]})로 원래 문항에 결과를 되돌려 적는다.
-question_status()가 이 기록들을 모아 문항마다 "마지막에 틀렸나 / 한 번이라도 틀렸나 / 🔖" 를 계산한다.
+question_status()가 이 기록들을 모아 문항마다 "마지막에 틀렸나 / 한 번이라도 틀렸나 / 🚩" 를 계산한다.
 """
 from __future__ import annotations
 
@@ -24,14 +24,14 @@ EMOJIS = ["🫀", "🧠", "🫁", "🦴", "🧬", "💊", "🦠", "🩸", "🧪"
 # 복습 출처
 SRC_WRONG = "wrong"          # 마지막으로 풀었을 때 틀린 문항
 SRC_EVER_WRONG = "ever"      # 한 번이라도 틀린 문항
-SRC_FLAGGED = "flagged"      # 🔖 나중에 확인
+SRC_FLAGGED = "flagged"      # 🚩 문항 표시
 SRC_UNSOLVED = "unsolved"    # 아직 안 푼 문항
 SRC_EXAM = "exam"            # 기출·문제지 세트의 모든 문항
 SRC_GENERATED = "generated"  # AI 생성 세트의 모든 문항
 SOURCE_LABEL = {
     SRC_WRONG: "❌ 틀린 문항 (최근 풀이 기준)",
     SRC_EVER_WRONG: "⚠️ 한 번이라도 틀린 문항",
-    SRC_FLAGGED: "🔖 나중에 확인 표시한 문항",
+    SRC_FLAGGED: "🚩 표시한 문항",
     SRC_UNSOLVED: "🆕 아직 안 푼 문항",
     SRC_EXAM: "📄 기출·문제지 문항 전체",
     SRC_GENERATED: "✨ AI 생성 문항 전체",

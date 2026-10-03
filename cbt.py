@@ -9,8 +9,9 @@ v2.13 신규:
   build_pdf()를 cbt.py에서 직접 호출. session_state.last_full_text 기반.
 
 v2.12 신규:
-- 🔖 플래그 기능: 문항마다 '나중에 확인' 토글. 플래그된 문항은 상단에 목록 표시.
-- 번호 버튼: 미답=회색(secondary), 답변=✓N(secondary), 플래그=🔖N(secondary), 현재=primary.
+- 🚩 문항 표시: 문항마다 표시 토글. 표시한 문항은 상단 목록에서 바로 이동.
+- ✂️ 선지 제외(소거): 아니라고 판단한 선지를 취소선으로 지워 두기 (선택은 그대로 가능).
+- 번호 버튼: 미답=N, 답변=✓N, 표시=🚩N, 현재=primary.
 - 미완료 제출 허용: 미답 문항은 오답으로 처리되고 그냥 제출 가능.
 
 v2.11 성능 최적화:
@@ -226,6 +227,35 @@ def _check_button(prefix, cur, shown, shown_key, disabled=False):
               help="답을 고른 뒤 누르세요." if disabled else None)
 
 
+_CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
+
+
+def _md_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]").replace("~", "\\~")
+
+
+def _choice_label(ci: int, choice: str, excluded: bool) -> str:
+    label = f"({ci+1}) {choice}"
+    return f":gray[~~{_md_escape(label)}~~]" if excluded else label
+
+
+def _excluded(prefix: str, qid: str) -> set:
+    return set(st.session_state.get(f"{prefix}_excl", {}).get(qid, []))
+
+
+def _exclude_control(prefix: str, qid: str, n: int) -> None:
+    """✂️ 선지 제외(소거): 고른 선지에 취소선. 문항을 오가도 유지되도록 따로 저장한다."""
+    store = st.session_state.setdefault(f"{prefix}_excl", {})
+    key = f"{prefix}_ex_{qid}"
+
+    def _save():
+        store[qid] = list(st.session_state.get(key) or [])
+
+    st.pills("✂️ 선지 제외 — 아니라고 생각하는 선지를 눌러 지워 두기", options=list(range(n)),
+             format_func=lambda i: _CIRCLED[i] if i < len(_CIRCLED) else str(i + 1),
+             selection_mode="multi", default=store.get(qid, []), key=key, on_change=_save)
+
+
 def _set_cur(prefix, idx):
     st.session_state[f"{prefix}_cur"] = idx
 
@@ -364,13 +394,19 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     st.markdown(f"**총 {total}문항** · 답변: {answered_count}/{total}")
     st.progress(answered_count / total if total else 0)
 
-    # ── 플래그 목록 (상단) ──
+    # ── 🚩 표시한 문항 (상단) — 눌러서 바로 이동 ──
     if flags:
-        flagged_nums = ', '.join(f"{i+1}번" for i in sorted(flags))
-        st.warning(f"🔖 **나중에 확인**: {flagged_nums}")
+        marked = sorted(flags)
+        mcols = st.columns([1.4] + [0.6] * min(len(marked), 12) + [max(0.1, 12 - len(marked)) * 0.6])
+        mcols[0].markdown(f"🚩 **표시한 문항 {len(marked)}개**")
+        for j, idx in enumerate(marked[:12], 1):
+            mcols[j].button(f"{idx+1}", key=f"{session_prefix}_mk_{idx}", on_click=_set_cur,
+                            args=(session_prefix, idx), use_container_width=True)
+        if len(marked) > 12:
+            mcols[-1].caption(f"외 {len(marked) - 12}개 (번호 버튼의 🚩)")
 
     # ── 상단 번호 버튼 네비게이션 (10개씩 한 줄) ──
-    # 미답=회색(secondary), 답변=✓N(secondary), 플래그=🔖N(secondary), 현재=primary
+    # 미답=N, 답변=✓N, 표시=🚩N, 현재=primary
     COLS_PER_ROW = 10
     for row_start in range(0, total, COLS_PER_ROW):
         row_qs = list(range(row_start, min(row_start + COLS_PER_ROW, total)))
@@ -384,7 +420,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
             if is_current:
                 label = f"**{idx+1}**"
             elif is_flagged:
-                label = f"🔖{idx+1}"
+                label = f"🚩{idx+1}"
             elif answered:
                 label = f"✓{idx+1}"
             else:
@@ -405,8 +441,8 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     ua  = user_ans.get(qid)
     answer_revealed = cur in shown
 
-    # 🔖 플래그 토글 버튼 (문항 제목 옆)
-    flag_label = "🔖 확인 취소" if cur in flags else "🔖 나중에 확인"
+    # 🚩 문항 표시 토글 (문항 제목 옆)
+    flag_label = "🚩 표시 해제" if cur in flags else "🚩 문항 표시"
     def _toggle_flag():
         if cur in flags:
             flags.discard(cur)
@@ -418,7 +454,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         # v2.16: stem에 '\n' 포함 시 (케이스형 증례 설명 등) 제목과 본문 분리 렌더링
         _stem_parts = q['stem'].split('\n', 1)
         _title, _badges = _split_status(_stem_parts[0])
-        st.markdown(f"### {cur+1}. {_title}")
+        st.markdown(f"**{cur+1}.** {_title}")         # 본문과 같은 글자 크기
         if _badges:
             st.markdown(" ".join(f'<span class="pill pill-{kind}">{label}</span>'
                                  for label, kind in _badges), unsafe_allow_html=True)
@@ -431,8 +467,8 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
             else:
                 st.caption("🖼️ 그림 파일을 찾을 수 없습니다 (서버 재시작 등으로 삭제됨).")
     with col_flag:
-        st.button(flag_label, key=f"{session_prefix}_flag_{cur}",
-                  on_click=_toggle_flag, use_container_width=True)
+        st.button(flag_label, key=f"{session_prefix}_flag_{cur}", on_click=_toggle_flag,
+                  use_container_width=True, type="primary" if cur in flags else "secondary")
 
     if q['is_subjective']:
         # 주관식 — 직접 타이핑
@@ -465,10 +501,13 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         # 복수정답 — 체크박스
         sel = list(ua) if isinstance(ua, list) else []
         new_sel = []
+        excluded = _excluded(session_prefix, qid)
         for ci, choice in enumerate(q['choices']):
-            if st.checkbox(f"({ci+1}) {choice}", value=(ci in sel),
+            if st.checkbox(_choice_label(ci, choice, ci in excluded), value=(ci in sel),
                            key=f"{session_prefix}_cb_{qid}_{ci}"):
                 new_sel.append(ci)
+        if not answer_revealed:
+            _exclude_control(session_prefix, qid, len(q['choices']))
         user_ans[qid] = new_sel
         st.session_state[ans_key] = user_ans
 
@@ -479,7 +518,8 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
 
     else:
         # 단일정답 — 라디오
-        labels   = [f"({ci+1}) {c}" for ci, c in enumerate(q['choices'])]
+        excluded = _excluded(session_prefix, qid)
+        labels   = [_choice_label(ci, c, ci in excluded) for ci, c in enumerate(q['choices'])]
         prev_idx = ua[0] if isinstance(ua, list) and ua else None
         sel_r = st.radio(
             "선택", options=list(range(len(labels))),
@@ -491,6 +531,8 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         new_ua = [sel_r] if sel_r is not None else []
         user_ans[qid] = new_ua
         st.session_state[ans_key] = user_ans
+        if not answer_revealed:
+            _exclude_control(session_prefix, qid, len(q['choices']))
 
         if answer_revealed:
             _show_result(q, new_ua)

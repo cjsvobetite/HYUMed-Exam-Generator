@@ -114,7 +114,7 @@ def _gallery(uid: str, nbs: list) -> None:
             st.caption(" · ".join(u["name"] for u in nb.get("units", [])) or "단원 없음")
             ui.pills([(f"세트 {s['sets']}", "mute"), (f"문항 {s['questions']}", "mute"),
                       (f"❌ {s['wrong']}", "warn" if s["wrong"] else "mute"),
-                      (f"🔖 {s['flagged']}", "info" if s["flagged"] else "mute")])
+                      (f"🚩 {s['flagged']}", "info" if s["flagged"] else "mute")])
             if st.button("열기", key=f"open_{nb['id']}", use_container_width=True, type="primary"):
                 st.session_state.ws_nb = nb["id"]
                 st.rerun()
@@ -138,7 +138,7 @@ def _notebook(uid: str, nb: dict) -> None:
     m[0].metric("세트", f"{s['sets']}개")
     m[1].metric("문항", f"{s['questions']}개")
     m[2].metric("틀린 문항", f"{s['wrong']}개")
-    m[3].metric("🔖 나중에 확인", f"{s['flagged']}개")
+    m[3].metric("🚩 표시한 문항", f"{s['flagged']}개")
 
     t_review, t_sets, t_units, t_cfg = st.tabs(["📝 복습 만들기", "📂 세트", "🗂️ 단원", "⚙️ 설정"])
     with t_review:
@@ -162,7 +162,7 @@ def _unit_rows(uid, nb, status):
         rows.append({
             "단원": u["name"], "세트": len(mine), "문항": sum(x.get("n_questions", 0) for x in mine),
             "틀린 문항": sum(1 for (sid, _), q in status.items() if sid in ids and q.last_correct is False),
-            "🔖": sum(1 for (sid, _), q in status.items() if sid in ids and q.flagged),
+            "🚩": sum(1 for (sid, _), q in status.items() if sid in ids and q.flagged),
             "안 푼 문항": sum(x.get("n_questions", 0) for x in mine)
                        - sum(1 for (sid, _), q in status.items() if sid in ids and q.tries),
         })
@@ -171,7 +171,7 @@ def _unit_rows(uid, nb, status):
 
 def _review(uid, nb, status):
     ui.step(1, "범위", "단원별 현황을 보고 복습할 단원을 고르세요.")
-    ui.table(_unit_rows(uid, nb, status), columns=["단원", "세트", "문항", "틀린 문항", "🔖", "안 푼 문항"],
+    ui.table(_unit_rows(uid, nb, status), columns=["단원", "세트", "문항", "틀린 문항", "🚩", "안 푼 문항"],
              empty="아직 저장한 세트가 없습니다.")
     unit_opts = {u["name"]: u["id"] for u in nb.get("units", [])}
     unit_opts[_NO_UNIT] = None

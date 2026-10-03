@@ -33,3 +33,36 @@ def test_multi_answer_waits_for_check_button():
 def test_check_button_disabled_until_answer_chosen():
     at = AppTest.from_string(SCRIPT, default_timeout=30).run()
     assert at.button(key="t_check_0").disabled
+
+
+SCRIPT_SUBMIT = SCRIPT.replace('mode="per_q"', 'mode="submit_all"')
+
+
+def test_stem_is_body_size_not_heading():
+    at = AppTest.from_string(SCRIPT, default_timeout=30).run()
+    assert not [h for h in at.markdown if h.value.startswith("###")]
+    assert any(m.value.startswith("**1.** 모두 고르시오") for m in at.markdown)
+
+
+def test_excluded_choices_are_struck_and_survive_navigation():
+    at = AppTest.from_string(SCRIPT_SUBMIT, default_timeout=30).run()
+    at.button_group(key="t_ex_문제 1").set_value([2, 4]).run()          # ③ ⑤ 제외
+    labels = [cb.label for cb in at.checkbox]
+    assert labels[2].startswith(":gray[~~(3)") and labels[4].startswith(":gray[~~(5)")
+    assert labels[0] == "(1) A"
+    at.button(key="t_next").click().run()                                # 2번으로 갔다가
+    at.button(key="t_prev").click().run()                                # 돌아와도
+    labels = [cb.label for cb in at.checkbox]
+    assert labels[2].startswith(":gray[~~") and labels[1] == "(2) B"
+    at.checkbox(key="t_cb_문제 1_2").check().run()                       # 제외한 선지도 고를 수는 있음
+    assert at.checkbox(key="t_cb_문제 1_2").value
+
+
+def test_marked_questions_jump():
+    at = AppTest.from_string(SCRIPT_SUBMIT, default_timeout=30).run()
+    at.button(key="t_flag_0").click().run()
+    assert at.button(key="t_flag_0").label == "🚩 표시 해제"
+    at.button(key="t_next").click().run()
+    assert any(b.label == "🚩1" for b in at.button)                      # 번호 버튼에 🚩
+    at.button(key="t_mk_0").click().run()                                # 상단 목록에서 바로 이동
+    assert any(m.value.startswith("**1.**") for m in at.markdown)
