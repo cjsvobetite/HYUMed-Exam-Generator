@@ -1,6 +1,6 @@
 """CBT 풀이 기록 저장·불러오기.
 
-저장 위치: cbt_history.json  (config.HISTORY_PATH, 서버 재시작 전까지 누적)
+저장 위치: store.get_store() — DATABASE_URL이 있으면 DB, 없으면 data/cbt_history.json
 구조:
   {
     "alice": [
@@ -17,8 +17,7 @@
 """
 from datetime import datetime
 
-from config import HISTORY_PATH
-from storage import load_json, update_json
+from store import get_store
 
 
 def is_graded(q: dict) -> bool:
@@ -57,13 +56,13 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
         "detail": detail,
         "full_text": full_text,   # v2.16: 재풀이용 원본 마크다운 저장
     }
-    update_json(HISTORY_PATH, lambda data: data.setdefault(user, []).append(record))
+    get_store().add_attempt(user, record)
     return record
 
 
 def load_history(user: str) -> list:
     """유저의 풀이 기록 리스트 반환 (최신순)."""
-    return list(reversed(load_json(HISTORY_PATH).get(user, [])))
+    return list(reversed(get_store().attempts(user)))
 
 
 def get_wrong_questions(questions: list, wrong_ids: list) -> list:

@@ -3,14 +3,19 @@ import streamlit as st
 
 import auth
 import ui
-from config import ADMIN_ID, HISTORY_PATH
-from storage import load_json
+from config import ADMIN_ID
+from store import get_store
 
 
 def render() -> None:
     ui.hero("관리자 대시보드", f"관리자: {ADMIN_ID}")
+    if get_store().kind == "postgres":
+        ui.pills([("저장소: Postgres (Neon) — 재시작해도 유지", "ok")])
+    else:
+        ui.pills([("저장소: 서버 파일 — 재시작하면 삭제됨", "warn")])
+        st.caption("Secrets에 DATABASE_URL을 넣으면 회원·기록·그림이 DB에 저장됩니다. README의 'Neon 연결' 참고.")
     all_users = auth.load_users()
-    all_history = load_json(HISTORY_PATH)
+    all_history = get_store().all_attempts()
 
     total = sum(len(v) for v in all_history.values())
     active = len([u for u, h in all_history.items() if h])

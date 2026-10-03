@@ -8,8 +8,7 @@ import hmac
 import re
 import secrets
 
-from config import USERS_PATH
-from storage import load_json, update_json
+from store import get_store
 
 _ITERATIONS = 200_000
 _UID_RE = re.compile(r"[A-Za-z0-9_]{3,20}")
@@ -32,17 +31,15 @@ def verify_password(pw: str, stored: str) -> bool:
 
 
 def load_users() -> dict:
-    return load_json(USERS_PATH)
+    return get_store().all_users()
 
 
 def login(uid: str, pw: str) -> bool:
-    stored = load_users().get(uid)
+    stored = get_store().get_user(uid or "")
     if not stored or not verify_password(pw or "", stored):
         return False
     if not stored.startswith("pbkdf2$"):
-        def _upgrade(users):
-            users[uid] = hash_password(pw)
-        update_json(USERS_PATH, _upgrade)
+        get_store().set_password(uid, hash_password(pw))
     return True
 
 
@@ -55,9 +52,6 @@ def signup(uid: str, pw: str, pw2: str) -> str | None:
     if pw != pw2:
         return "비밀번호가 일치하지 않습니다."
 
-    def _add(users):
-        if uid in users:
-            return "이미 사용 중인 아이디입니다."
-        users[uid] = hash_password(pw)
-        return None
-    return update_json(USERS_PATH, _add)
+    if not get_store().add_user(uid, hash_password(pw)):
+        return "이미 사용 중인 아이디입니다."
+    return None

@@ -28,12 +28,13 @@ llm.py                  OpenAI 클라이언트, 모델별 파라미터·토큰 �
 cbt.py                  CBT 파싱·화면
 history.py              풀이 기록
 pdf_export.py           PDF 생성 (한글 폰트, 그림 포함)
-auth.py / storage.py    회원 계정 / JSON 저장 (원자적 쓰기 + 잠금)
+store.py                저장소: DATABASE_URL 있으면 Postgres(Neon), 없으면 data/ 파일
+auth.py / storage.py    회원 계정 / JSON 파일 저장 (원자적 쓰기 + 잠금)
 tests/                  pytest
 packages.txt            Streamlit Cloud용 apt 패키지 (Tesseract OCR)
 ```
 
-실행 중 만들어지는 `data/`(users.json, cbt_history.json, outputs/, images/)와 `fonts/*.ttf`는 Git에 올라가지 않습니다.
+`DATABASE_URL`이 없으면 회원·기록·그림이 `data/`(users.json, cbt_history.json, images/)에 저장됩니다. `data/`와 `fonts/*.ttf`는 Git에 올라가지 않습니다.
 
 ## 문제지 CBT
 
@@ -83,7 +84,26 @@ streamlit run app.py
 ```bash
 pip install -r requirements-dev.txt
 pytest
+# DB 저장소까지 테스트하려면 (빈 테스트용 DB)
+TEST_DATABASE_URL=postgresql://... pytest tests/test_store.py
 ```
+
+## Neon 연결 (데이터 영구 저장)
+
+Streamlit Cloud는 재시작·잠자기 때마다 서버 파일을 지우므로, 배포할 때는 무료 Postgres인 [Neon](https://neon.tech)에 저장합니다.
+회원, 풀이 기록, 문제지에서 잘라낸 그림(WebP로 압축)이 모두 DB에 들어갑니다.
+
+1. neon.tech에 가입 → **New Project** (리전은 Singapore 등 가까운 곳)
+2. 대시보드 **Connect** → 연결 주소 복사. **Pooled connection**(주소에 `-pooler`가 들어감)을 고르고 `?sslmode=require`가 붙어 있는지 확인
+3. Streamlit Secrets(로컬은 `.streamlit/secrets.toml`)에 추가:
+   ```toml
+   DATABASE_URL = "postgresql://...-pooler.....neon.tech/neondb?sslmode=require"
+   ```
+4. 앱을 다시 시작하면 테이블(`users`, `attempts`, `images`)이 자동으로 만들어집니다. 관리자 대시보드 맨 위에 **저장소: Postgres (Neon)** 이라고 나오면 연결된 것입니다.
+
+- Neon은 안 쓰면 잠들었다가 접속이 오면 자동으로 깨어납니다. 깨어나는 첫 요청만 1~2초 느립니다.
+- 로컬 `data/`에 쌓인 기록을 DB로 옮기려면: `DATABASE_URL=... python store.py migrate`
+- 비밀번호는 해시(PBKDF2)로만 저장됩니다. Neon 대시보드의 SQL Editor에서 `select * from attempts` 등으로 직접 조회할 수 있습니다.
 
 ## Streamlit Community Cloud 배포
 
@@ -93,13 +113,14 @@ pytest
 ```toml
 OPENAI_API_KEY = "sk-..."
 ADMIN_ID = "관리자로 쓸 아이디"
+DATABASE_URL = "postgresql://...neon.tech/neondb?sslmode=require"
 ```
 
 `packages.txt` 덕분에 Tesseract도 자동 설치됩니다.
 
 - API 키는 절대 코드나 GitHub에 올리지 마세요.
 - `ADMIN_ID`와 같은 아이디로 로그인하면 관리자 대시보드가 열립니다(지정하지 않으면 `jsdec22`). 다른 사람이 먼저 가입하지 못하도록 배포 직후 그 아이디로 가입해 두세요.
-- Streamlit Cloud는 재시작하면 파일이 초기화되어 회원·풀이 기록·문항 그림(`data/`)이 사라집니다. 오래 보관하려면 DB가 필요합니다.
+- `DATABASE_URL`을 넣지 않으면 재시작할 때마다 회원·풀이 기록·문항 그림이 사라집니다. 위 **Neon 연결**을 먼저 해 두세요.
 
 ## Colab에서 실행
 
