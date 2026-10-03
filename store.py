@@ -7,6 +7,9 @@ Streamlit Cloud는 재시작하면 파일이 지워지므로 배포할 때는 DA
   get_user / all_users / add_user / set_password
   add_attempt / attempts / all_attempts
   put_image / get_image
+  notebooks / save_notebook / delete_notebook          (학습 공간: 과목 노트북 + 단원)
+  sets / get_set / save_set / delete_set               (노트북에 저장한 문항 세트)
+모든 학습 공간 메서드는 uid로 범위를 제한한다 — 다른 사람 노트북·세트는 읽거나 지울 수 없다.
 """
 from __future__ import annotations
 
@@ -15,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from config import DATA_DIR, HISTORY_PATH, USERS_PATH, get_secret
+
+WORKSPACE_PATH = str(Path(DATA_DIR) / "workspace.json")
 from storage import load_json, update_json
 
 _SCHEMA = """
@@ -31,6 +36,22 @@ CREATE TABLE IF NOT EXISTS attempts (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS attempts_uid_idx ON attempts (uid, id);
+CREATE TABLE IF NOT EXISTS notebooks (
+    id          TEXT PRIMARY KEY,
+    uid         TEXT NOT NULL,
+    data        JSONB NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notebooks_uid_idx ON notebooks (uid);
+CREATE TABLE IF NOT EXISTS sets (
+    id           TEXT PRIMARY KEY,
+    uid          TEXT NOT NULL,
+    notebook_id  TEXT,
+    meta         JSONB NOT NULL,
+    markdown     TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS sets_uid_idx ON sets (uid, notebook_id);
 CREATE TABLE IF NOT EXISTS images (
     id          TEXT PRIMARY KEY,
     data        BYTEA NOT NULL,
@@ -87,6 +108,47 @@ class JsonStore:
     def get_image(self, img_id: str) -> bytes | None:
         path = self.images_dir / f"{img_id}.webp"
         return path.read_bytes() if path.exists() else None
+
+    # 학습 공간 — data/workspace.json: {uid: {"notebooks": {id: nb}, "sets": {id: set}}}
+    def _ws(self, uid: str) -> dict:
+        return load_json(WORKSPACE_PATH).get(uid, {"notebooks": {}, "sets": {}})
+
+    def _ws_update(self, uid: str, fn):
+        def _apply(data):
+            ws = data.setdefault(uid, {"notebooks": {}, "sets": {}})
+            ws.setdefault("notebooks", {})
+            ws.setdefault("sets", {})
+            return fn(ws)
+        return update_json(WORKSPACE_PATH, _apply)
+
+    def notebooks(self, uid: str) -> list:
+        return sorted(self._ws(uid).get("notebooks", {}).values(), key=lambda n: n.get("created_at", ""))
+
+    def save_notebook(self, uid: str, nb: dict) -> None:
+        self._ws_update(uid, lambda ws: ws["notebooks"].__setitem__(nb["id"], nb))
+
+    def delete_notebook(self, uid: str, nb_id: str) -> None:
+        def _del(ws):
+            ws["notebooks"].pop(nb_id, None)
+            for sid in [k for k, v in ws["sets"].items() if v.get("notebook_id") == nb_id]:
+                ws["sets"].pop(sid)
+        self._ws_update(uid, _del)
+
+    def sets(self, uid: str, notebook_id: str | None = None, with_markdown: bool = False) -> list:
+        out = []
+        for st in self._ws(uid).get("sets", {}).values():
+            if notebook_id is None or st.get("notebook_id") == notebook_id:
+                out.append(st if with_markdown else {k: v for k, v in st.items() if k != "markdown"})
+        return sorted(out, key=lambda x: x.get("created_at", ""))
+
+    def get_set(self, uid: str, set_id: str) -> dict | None:
+        return self._ws(uid).get("sets", {}).get(set_id)
+
+    def save_set(self, uid: str, st: dict) -> None:
+        self._ws_update(uid, lambda ws: ws["sets"].__setitem__(st["id"], st))
+
+    def delete_set(self, uid: str, set_id: str) -> None:
+        self._ws_update(uid, lambda ws: ws["sets"].pop(set_id, None))
 
 
 class PgStore:
@@ -150,6 +212,45 @@ class PgStore:
     def get_image(self, img_id: str) -> bytes | None:
         row = self._one("SELECT data FROM images WHERE id = %s", (img_id,))
         return bytes(row[0]) if row else None
+
+    # 학습 공간
+    def notebooks(self, uid: str) -> list:
+        return [d for (d,) in self._all("SELECT data FROM notebooks WHERE uid = %s ORDER BY created_at", (uid,))]
+
+    def save_notebook(self, uid: str, nb: dict) -> None:
+        from psycopg.types.json import Jsonb
+        self._one("INSERT INTO notebooks (id, uid, data) VALUES (%s, %s, %s) "
+                  "ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data WHERE notebooks.uid = EXCLUDED.uid "
+                  "RETURNING id", (nb["id"], uid, Jsonb(nb)))
+
+    def delete_notebook(self, uid: str, nb_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM sets WHERE uid = %s AND notebook_id = %s", (uid, nb_id))
+            conn.execute("DELETE FROM notebooks WHERE uid = %s AND id = %s", (uid, nb_id))
+
+    def sets(self, uid: str, notebook_id: str | None = None, with_markdown: bool = False) -> list:
+        cols = "meta, markdown" if with_markdown else "meta, NULL"
+        if notebook_id is None:
+            rows = self._all(f"SELECT {cols} FROM sets WHERE uid = %s ORDER BY created_at", (uid,))
+        else:
+            rows = self._all(f"SELECT {cols} FROM sets WHERE uid = %s AND notebook_id = %s ORDER BY created_at",
+                             (uid, notebook_id))
+        return [dict(meta, markdown=md) if with_markdown else meta for meta, md in rows]
+
+    def get_set(self, uid: str, set_id: str) -> dict | None:
+        row = self._one("SELECT meta, markdown FROM sets WHERE uid = %s AND id = %s", (uid, set_id))
+        return dict(row[0], markdown=row[1]) if row else None
+
+    def save_set(self, uid: str, st: dict) -> None:
+        from psycopg.types.json import Jsonb
+        meta = {k: v for k, v in st.items() if k != "markdown"}
+        self._one("INSERT INTO sets (id, uid, notebook_id, meta, markdown) VALUES (%s, %s, %s, %s, %s) "
+                  "ON CONFLICT (id) DO UPDATE SET notebook_id = EXCLUDED.notebook_id, meta = EXCLUDED.meta, "
+                  "markdown = EXCLUDED.markdown WHERE sets.uid = EXCLUDED.uid RETURNING id",
+                  (st["id"], uid, st.get("notebook_id"), Jsonb(meta), st.get("markdown", "")))
+
+    def delete_set(self, uid: str, set_id: str) -> None:
+        self._one("DELETE FROM sets WHERE uid = %s AND id = %s RETURNING id", (uid, set_id))
 
 
 @lru_cache(maxsize=1)

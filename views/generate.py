@@ -13,6 +13,7 @@ from extractors import ALL_TYPES, IMAGE_TYPES, TEXT_TYPES, OCRConfig, estimate_t
 from llm import MODELS
 from pdf_export import autonumber_choices, build_pdf
 from question_generator import BLUEPRINT, REPLACE, STATUS, generate_questions
+from views.workspace import save_panel
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -235,10 +236,13 @@ def _results() -> None:
         top_r.download_button("📄 PDF", data=data, file_name=name, mime="application/pdf",
                               help="문제지 + 정답·해설 분리", type="primary",
                               use_container_width=True, key="main_pdf_dl")
+    ts = st.session_state.last_ts
+    set_id = save_panel(full_text, "generated", f"AI 생성 세트 {ts[:8]}", key=f"save_gen_{ts}")
     if view == VIEW_PREVIEW:
         ui.render_markdown(full_text)
     else:
         qs = parse_cbt_questions(full_text)
         st.caption(f"{len(qs)}문항 파싱됨")
-        render_cbt(qs, mode=cbt_mode_value(view), session_prefix=f"cbt_{st.session_state.last_ts}",
-                   user=st.session_state.get("user", ""), source_text=full_text, title="AI 생성 세트")
+        render_cbt(qs, mode=cbt_mode_value(view), session_prefix=f"cbt_{ts}",
+                   user=st.session_state.get("user", ""), source_text=full_text, title="AI 생성 세트",
+                   set_id=set_id)

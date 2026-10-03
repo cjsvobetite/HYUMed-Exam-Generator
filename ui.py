@@ -174,6 +174,9 @@ table.grid td.empty { text-align: center; color: #888; padding: 18px; background
 .pill-ok   { background: #EAF6E8; color: #2E6B2A; border-color: #9CCB95; }
 .pill-mute { background: #F4F4F4; color: #555; border-color: #CCCCCC; }
 
+/* ── 노트북 카드 ── */
+.nb-title { font-size: 18px; font-weight: 800; color: var(--head-ink); margin-bottom: 2px; }
+
 /* ── 로그인 상자 ── */
 .login-hd { background: linear-gradient(#6E6E6E, #555); color: #fff; font-weight: 800; padding: 9px 14px;
   font-size: 15px; letter-spacing: 1px; }

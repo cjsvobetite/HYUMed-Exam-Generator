@@ -25,11 +25,15 @@ def is_graded(q: dict) -> bool:
     return not q["is_subjective"] and bool(q["answers"])
 
 
-def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = "", title: str = ""):
+def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = "", title: str = "",
+                 set_id: str | None = None, sources: dict | None = None, flagged: list | None = None):
     """CBT 제출 결과를 기록에 추가.
     questions: parse_cbt_questions() 반환값
     user_ans:  {qid: [int,...] or str}  (session_state[ans_key])
     full_text: 원본 마크다운 전문 (복습 재풀이용, v2.16)
+    set_id:    학습 공간에 저장된 세트를 푼 경우 그 세트 id
+    sources:   복습 세트를 푼 경우 {복습 문항 번호: [set_id, 원래 문항 번호]}
+    flagged:   🔖 표시한 문항 번호 목록 (나머지 문항은 🔖 해제로 기록)
     """
     obj_qs = [q for q in questions if is_graded(q)]
     detail = {}
@@ -56,6 +60,15 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
         "detail": detail,
         "full_text": full_text,   # v2.16: 재풀이용 원본 마크다운 저장
     }
+    if set_id:
+        record["set_id"] = set_id
+    if sources:
+        record["sources"] = sources
+    if set_id or sources:
+        flagged_set = set(flagged or [])
+        record["flagged_ids"] = [q["id"] for q in questions if q["id"] in flagged_set]
+        record["unflagged_ids"] = [q["id"] for q in questions if q["id"] not in flagged_set]
+        record["seen_ids"] = [q["id"] for q in questions]     # 채점 안 되는 문항(주관식 등)도 '풀었음'으로
     get_store().add_attempt(user, record)
     return record
 

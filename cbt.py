@@ -249,7 +249,8 @@ def _show_result(q, ua):
             st.markdown(q['explanation'])
 
 
-def _show_score(questions, user_ans, prefix, user="", source_text="", save=True, title=""):
+def _show_score(questions, user_ans, prefix, user="", source_text="", save=True, title="",
+                set_id=None, sources=None, flagged=None):
     """점수 패널. save=False면 점수만 보여주고 기록은 남기지 않는다 (문항별 모드 진행 중)."""
     obj_qs = [q for q in questions if is_graded(q)]
     if not obj_qs:
@@ -277,7 +278,8 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True,
     # ── v2.14: 풀이 기록 저장 ──
     if user and not st.session_state.get(f"{prefix}_saved"):
         try:
-            record = save_attempt(user, questions, user_ans, full_text=source_text, title=title)
+            record = save_attempt(user, questions, user_ans, full_text=source_text, title=title,
+                                  set_id=set_id, sources=sources, flagged=flagged)
             st.session_state[f"{prefix}_saved"] = True
             st.session_state[f"{prefix}_wrong_ids"] = record["wrong_ids"]
             st.caption(f"📝 기록 저장됨 — {record['ts']}")
@@ -323,7 +325,8 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True,
 
 
 @st.fragment
-def render_cbt(questions, mode, session_prefix, user="", source_text=None, title=""):
+def render_cbt(questions, mode, session_prefix, user="", source_text=None, title="",
+               set_id=None, sources=None):
     """CBT UI — 문항 1개씩 표시, 상단 번호 버튼 네비게이션.
 
     @st.fragment: 이 함수 내부의 위젯 변경은 전체 앱을 재실행하지 않고
@@ -332,6 +335,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     mode: 'per_q' | 'submit_all'
     source_text: 기록·PDF에 쓸 원본 마크다운 (기본값: 마지막 생성 결과)
     title: 풀이 기록에 남길 세트 이름
+    set_id / sources: 학습 공간 세트·복습 세트와 기록을 잇는 정보 (history.save_attempt 참고)
     """
     if source_text is None:
         source_text = st.session_state.get("last_full_text", "")
@@ -530,15 +534,18 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         st.subheader(f"🔁 오답 재풀이 ({len(retry_qs)}문항)")
         render_cbt(retry_qs, mode=mode,
                    session_prefix=f"{session_prefix}_retry", user=user,
-                   source_text=source_text, title=f"{title} (오답 재풀이)" if title else "오답 재풀이")
+                   source_text=source_text, title=f"{title} (오답 재풀이)" if title else "오답 재풀이",
+                   set_id=set_id, sources=sources)
         return
 
     # ── 점수 패널 ──
     if mode == 'submit_all' and len(shown) >= total:
         st.markdown("---")
-        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text, title=title)
+        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text, title=title,
+                    set_id=set_id, sources=sources, flagged=[questions[i]['id'] for i in flags])
     elif mode == 'per_q' and shown:
         done = len(shown) >= total          # 모든 문항의 정답을 확인해야 기록 저장
         with st.expander(f"📊 현재 점수 (정답 확인 {len(shown)}/{total})", expanded=done):
             _show_score(questions, user_ans, session_prefix, user=user,
-                        source_text=source_text, save=done, title=title)
+                        source_text=source_text, save=done, title=title, set_id=set_id, sources=sources,
+                        flagged=[questions[i]['id'] for i in flags])
