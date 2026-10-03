@@ -51,8 +51,16 @@ header[data-testid="stHeader"] { top: var(--topbar-h); background: transparent; 
   background: #FFFFFF; border-right: 6px solid #E4EAF2; }
 [data-testid="stSidebarContent"] { padding-top: 0; }
 [data-testid="stSidebarHeader"] { height: 0; padding: 0; min-height: 0; }
-[data-testid="stSidebarCollapseButton"] { position: absolute; right: 8px; top: 8px; z-index: 5; }
-[data-testid="stSidebarCollapseButton"] button { color: var(--head-ink) !important; }
+/* 접기 버튼: Streamlit 기본은 마우스를 올릴 때만 보임 → 항상 보이게, 메뉴 머리줄 오른쪽에 */
+[data-testid="stSidebarCollapseButton"] {
+  position: absolute; right: 26px; top: 10px; z-index: 5;
+  display: block !important; visibility: visible !important; opacity: 1 !important;
+}
+[data-testid="stSidebarCollapseButton"] button {
+  color: var(--head-ink) !important; background: #fff !important; border: 1px solid var(--line) !important;
+  border-radius: 3px !important; padding: 2px 8px 2px 4px !important; width: auto !important; height: auto !important;
+}
+[data-testid="stSidebarCollapseButton"] button::after { content: "접기"; font-size: 12.5px; font-weight: 700; margin-left: 2px; }
 [data-testid="stSidebarUserContent"] { padding: 0 !important; }
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] { margin: 0 !important; }
