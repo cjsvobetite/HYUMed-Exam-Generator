@@ -1,5 +1,21 @@
 """SaluTerra — Streamlit 진입점: 로그인 → 페이지 이동."""
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+# ── 배포 후 옛 모듈이 메모리에 남는 문제 방지 ──
+# Streamlit Cloud는 새 코드를 받아도 이미 불러온 모듈 일부를 그대로 쓰는 경우가 있다
+# (예: 새 workspace.py가 옛 store.py의 저장소 객체를 받아 AttributeError).
+# 이 파일은 매번 새로 실행되므로, 프로젝트 .py 파일이 바뀌었으면 프로젝트 모듈을 모두 비워 새로 불러온다.
+_ROOT = Path(__file__).resolve().parent
+_code_sig = max(p.stat().st_mtime_ns for p in [*_ROOT.glob("*.py"), *_ROOT.glob("views/*.py")])
+if getattr(sys, "_saluterra_code_sig", None) != _code_sig:
+    for _name, _mod in list(sys.modules.items()):
+        _file = getattr(_mod, "__file__", None) or ""
+        if _name != "__main__" and _file.startswith(str(_ROOT)) and "/tests/" not in _file:
+            del sys.modules[_name]
+    sys._saluterra_code_sig = _code_sig
 
 import ui
 from config import ADMIN_ID
