@@ -33,7 +33,7 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
     full_text: 원본 마크다운 전문 (복습 재풀이용, v2.16)
     set_id:    학습 공간에 저장된 세트를 푼 경우 그 세트 id
     sources:   복습 세트를 푼 경우 {복습 문항 번호: [set_id, 원래 문항 번호]}
-    flagged:   🔖 표시한 문항 번호 목록 (나머지 문항은 🔖 해제로 기록)
+    flagged:   🚩 표시한 문항 번호 목록 (나머지 문항은 표시 해제로 기록)
     """
     obj_qs = [q for q in questions if is_graded(q)]
     detail = {}
