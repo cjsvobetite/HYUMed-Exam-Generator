@@ -13,7 +13,7 @@ from extractors import ALL_TYPES, IMAGE_TYPES, TEXT_TYPES, OCRConfig, estimate_t
 from llm import MODELS
 from pdf_export import autonumber_choices, build_pdf
 from question_generator import BLUEPRINT, REPLACE, STATUS, generate_questions
-from views.workspace import save_hub
+from views.workspace import card_request_box, save_hub
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -125,9 +125,11 @@ def render() -> None:
                      "전사본을 올리거나 붙여넣어야 켤 수 있습니다.",
             ) and bool(transcript_text)
             st.markdown("**함께 만들기**")
-            st.checkbox("🃏 문항마다 플래시카드도 만들기", value=True, key="gen_with_cards",
-                        help="문항을 다 만든 뒤 핵심 사실을 앞면·뒷면 카드로 만듭니다 (저렴한 모델로 한 번 더 호출). "
-                             "결과 화면에서 노트북에 같이 저장할 수 있습니다.")
+            with_cards = st.checkbox("🃏 플래시카드도 만들기", value=True, key="gen_with_cards",
+                                     help="문항을 다 만든 뒤 암기 카드를 만듭니다 (저렴한 모델로 한 번 더 호출). "
+                                          "결과 화면에서 노트북에 같이 저장할 수 있습니다.")
+            if with_cards:
+                card_request_box("gen_card_request")
             extra = st.text_area("추가 지시사항 (선택)", placeholder="예: 학습목표 중심으로 출제해줘",
                                  height=90, key="gen_extra")
 
@@ -211,11 +213,16 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
     st.session_state.last_blueprint = blueprint
     st.session_state.last_ts = ts
     st.session_state.last_term_rule = term_rule
+    material = "\n\n".join(filter(None, [transcript_text, lecture_text]))
+    st.session_state[f"save_gen_{ts}_material"] = material          # 결과 화면에서 카드를 다시 만들 때 사용
+    st.session_state[f"save_gen_{ts}_card_req"] = st.session_state.get("gen_card_request", "")
     if st.session_state.get("gen_with_cards"):
         import flashcards
         progress.caption("🃏 플래시카드 만드는 중...")
         try:
-            st.session_state[f"save_gen_{ts}_cards"] = flashcards.make_flashcards(full_text, term_rule=term_rule)
+            st.session_state[f"save_gen_{ts}_cards"] = flashcards.make_flashcards(
+                full_text, term_rule=term_rule, instruction=st.session_state.get("gen_card_request", ""),
+                material=material)
         except Exception as e:
             st.warning(f"플래시카드 생성 실패: {e} — 결과 화면의 '플래시카드 만들기'로 다시 시도할 수 있습니다.")
         progress.empty()

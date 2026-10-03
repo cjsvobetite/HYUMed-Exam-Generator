@@ -40,13 +40,22 @@ def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: 
         with t2:
             if cards is None:
                 st.markdown("**🃏 플래시카드** · 아직 안 만듦")
-                if st.button("🃏 이 문항들로 플래시카드 만들기", key=f"{key}_mkcards", use_container_width=True,
-                             help="문항마다 핵심 사실을 앞면(질문)·뒷면(답+이유) 카드로 만듭니다."):
-                    _make_cards(markdown, key, term_rule)
-                    st.rerun()
             else:
                 st.markdown(f"**🃏 플래시카드** · {len(cards)}장")
                 ui.pills([(f"✅ 저장됨 — {saved_deck['path']}", "ok")] if saved_deck else [("아직 저장 안 함", "warn")])
+            if not saved_deck:
+                with st.expander("🃏 카드 만들기" if cards is None else "🔁 요청을 바꿔 카드 다시 만들기",
+                                 expanded=cards is None):
+                    req_key = f"{key}_card_req"
+                    st.session_state.setdefault(req_key, st.session_state.get(f"{key}_card_req_default", ""))
+                    card_request_box(req_key)
+                    has_material = bool(st.session_state.get(f"{key}_material"))
+                    st.caption("재료: 이 문항들" + (" + 올린 강의 자료·전사본" if has_material else "")
+                               + " · 요청을 비우면 문항마다 핵심 카드 1~2장")
+                    if st.button("🃏 플래시카드 만들기" if cards is None else "🔁 다시 만들기",
+                                 key=f"{key}_mkcards", use_container_width=True, type="primary"):
+                        _make_cards(markdown, key, term_rule)
+                        st.rerun()
         if st.session_state.get(f"{key}_err"):
             st.warning(st.session_state.pop(f"{key}_err"))
         if cards:
@@ -68,11 +77,27 @@ def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: 
     return saved_set["id"] if saved_set else None
 
 
+def card_request_box(key: str) -> None:
+    """🃏 카드 만들기 요청 입력칸 + 예시 버튼 (생성 옵션·결과 화면 공용)."""
+    import flashcards
+
+    def _example():
+        st.session_state[key] = flashcards.EXAMPLE_REQUEST
+
+    st.text_area("🃏 카드 만들기 요청 (선택)", key=key, height=80,
+                 placeholder=f"예: {flashcards.EXAMPLE_REQUEST}",
+                 help="원하는 카드 종류·범위·앞뒷면 구성을 적으면 그대로 만듭니다. 비우면 문항마다 핵심 카드를 만듭니다.")
+    st.button("💡 예시 넣기", key=f"{key}_example", on_click=_example,
+              help=f"'{flashcards.EXAMPLE_REQUEST}'를 입력칸에 넣습니다.")
+
+
 def _make_cards(markdown: str, key: str, term_rule: str) -> None:
     import flashcards
-    with st.spinner("🃏 플래시카드 만드는 중..."):
+    with st.spinner("🃏 플래시카드 만드는 중... (강의 자료가 길면 1~2분)"):
         try:
-            st.session_state[f"{key}_cards"] = flashcards.make_flashcards(markdown, term_rule=term_rule)
+            st.session_state[f"{key}_cards"] = flashcards.make_flashcards(
+                markdown, term_rule=term_rule, instruction=st.session_state.get(f"{key}_card_req", ""),
+                material=st.session_state.get(f"{key}_material", ""))
         except Exception as e:
             st.session_state[f"{key}_err"] = f"플래시카드 생성 실패: {e}"
 

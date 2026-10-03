@@ -62,3 +62,47 @@ def test_deck_save_rate_and_stats(store):  # noqa: F811
     _, mapping, total = ws.build_review(uid, nb, None, [ws.SRC_UNSOLVED], 0)
     assert total == 3 and all(v[0] == qs["id"] for v in mapping.values())     # 덱은 문항 복습에 안 섞임
     assert ws.deck_cards(uid, qs["id"]) == []                                  # 문항 세트는 카드 아님
+
+
+def test_request_with_material_is_chunked_and_merged(monkeypatch):
+    calls = []
+
+    class C:
+        @staticmethod
+        def create(messages, **kw):
+            system, user = messages[0]["content"], messages[1]["content"]
+            calls.append((system, user))
+            if "강의 자료 (1/" in user:
+                cards = [{"front": "Myotome", "back": "근육이 되는 체절 부분"},
+                         {"front": "Sclerotome", "back": "뼈·연골이 되는 부분"}]
+            elif "강의 자료 (2/" in user:
+                cards = [{"front": "sclerotome", "back": "중복"}, {"front": "Dermatome", "back": "진피가 되는 부분"}]
+            else:
+                cards = [{"front": "Pax7", "back": "위성세포 표지", "qid": "문제 1"}]
+            msg = types.SimpleNamespace(content=json.dumps({"cards": cards}, ensure_ascii=False))
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    monkeypatch.setattr("llm.get_client", lambda: types.SimpleNamespace(chat=types.SimpleNamespace(completions=C)))
+    monkeypatch.setattr(flashcards, "_CHUNK", 200)
+    material = ("체절은 myotome, sclerotome, dermatome으로 나뉜다. " * 6) + "\n\n" + ("피부절과 근육절 설명. " * 12)
+    cards = flashcards.make_flashcards(MD, instruction=flashcards.EXAMPLE_REQUEST, material=material)
+
+    assert [c["front"] for c in cards] == ["Myotome", "Sclerotome", "Dermatome", "Pax7"]   # 덩어리별 결과 합치고 중복 제거
+    assert len(calls) == 3                                                               # 자료 2덩어리 + 문항 1번
+    assert all(flashcards.EXAMPLE_REQUEST in system and "최우선" in system for system, _ in calls)
+    assert cards[0]["qid"] == "" and cards[-1]["qid"] == "문제 1"
+
+
+def test_request_without_material_uses_questions(monkeypatch):
+    client, seen = _client([{"front": "A", "back": "B", "qid": "문제 1"}])
+    monkeypatch.setattr("llm.get_client", lambda: client)
+    cards = flashcards.make_flashcards(MD, instruction="수치만 카드로")
+    assert len(cards) == 1 and "수치만 카드로" in seen["system"]
+    assert json.loads(seen["user"])["questions"][0]["qid"] == "문제 1"
+
+
+def test_default_prompt_has_no_request(monkeypatch):
+    client, seen = _client([])
+    monkeypatch.setattr("llm.get_client", lambda: client)
+    assert flashcards.make_flashcards(MD) == []
+    assert "사용자 요청 (최우선" not in seen["system"]
