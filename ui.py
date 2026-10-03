@@ -174,6 +174,19 @@ table.grid td.empty { text-align: center; color: #888; padding: 18px; background
 .pill-ok   { background: #EAF6E8; color: #2E6B2A; border-color: #9CCB95; }
 .pill-mute { background: #F4F4F4; color: #555; border-color: #CCCCCC; }
 
+/* ── 결과 화면의 '내 노트북에 저장' 허브 — 눈에 띄게 ── */
+[class*="st-key-"][class*="_hub"] { border: 2px solid #5A8BC8 !important; background: #F5F9FF !important; }
+.hub-hd { font-size: 17px; font-weight: 800; color: var(--head-ink); }
+.hub-sub { font-size: 13px; color: var(--ink-soft); margin: 2px 0 6px 0; }
+
+/* ── 플래시카드 ── */
+.fc-card { border: 1px solid var(--line); background: #fff; min-height: 170px; padding: 26px 30px;
+           text-align: center; box-shadow: 3px 3px 0 #DCE6F2; margin: 6px 0 12px 0; }
+.fc-side { font-size: 11.5px; font-weight: 700; color: #8AA0BC; letter-spacing: .08em; margin-bottom: 8px; }
+.fc-text { font-size: 19px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+.fc-back { border-top: 1px dashed var(--line); margin-top: 18px; padding-top: 14px; font-size: 16px;
+           color: var(--head-ink); line-height: 1.6; }
+
 /* ── 노트북 카드 ── */
 .nb-title { font-size: 18px; font-weight: 800; color: var(--head-ink); margin-bottom: 2px; }
 

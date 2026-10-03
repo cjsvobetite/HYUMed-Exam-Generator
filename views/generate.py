@@ -13,7 +13,7 @@ from extractors import ALL_TYPES, IMAGE_TYPES, TEXT_TYPES, OCRConfig, estimate_t
 from llm import MODELS
 from pdf_export import autonumber_choices, build_pdf
 from question_generator import BLUEPRINT, REPLACE, STATUS, generate_questions
-from views.workspace import save_panel
+from views.workspace import save_hub
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -63,6 +63,7 @@ def _ocr_settings() -> OCRConfig:
 
 def render() -> None:
     ui.hero("AI 문항 생성", "강의 자료와 전사본으로 시험 대비 문항 세트를 만듭니다.")
+    ui.pills([("📒 만든 문항과 🃏 플래시카드는 결과 아래 '내 노트북에 저장'으로 과목·단원별로 모아 둘 수 있어요", "info")])
 
     # ── 1. 자료 ──
     ui.step(1, "자료 올리기", "강의 자료와 전사본 중 하나 이상이 필요합니다. 전사본 내용을 우선 반영합니다.")
@@ -123,6 +124,10 @@ def render() -> None:
                 help="교수님이 수업에서 실제로 말한 내용만 출제합니다. 강의 자료는 용어·수치 확인용으로만 씁니다. "
                      "전사본을 올리거나 붙여넣어야 켤 수 있습니다.",
             ) and bool(transcript_text)
+            st.markdown("**함께 만들기**")
+            st.checkbox("🃏 문항마다 플래시카드도 만들기", value=True, key="gen_with_cards",
+                        help="문항을 다 만든 뒤 핵심 사실을 앞면·뒷면 카드로 만듭니다 (저렴한 모델로 한 번 더 호출). "
+                             "결과 화면에서 노트북에 같이 저장할 수 있습니다.")
             extra = st.text_area("추가 지시사항 (선택)", placeholder="예: 학습목표 중심으로 출제해줘",
                                  height=90, key="gen_extra")
 
@@ -205,6 +210,15 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
     st.session_state.last_full_text = full_text
     st.session_state.last_blueprint = blueprint
     st.session_state.last_ts = ts
+    st.session_state.last_term_rule = term_rule
+    if st.session_state.get("gen_with_cards"):
+        import flashcards
+        progress.caption("🃏 플래시카드 만드는 중...")
+        try:
+            st.session_state[f"save_gen_{ts}_cards"] = flashcards.make_flashcards(full_text, term_rule=term_rule)
+        except Exception as e:
+            st.warning(f"플래시카드 생성 실패: {e} — 결과 화면의 '플래시카드 만들기'로 다시 시도할 수 있습니다.")
+        progress.empty()
     st.session_state.display_mode_radio = VIEW_CBT_PER_Q      # 생성 직후에는 바로 CBT로
     st.session_state.last_pdf = (f"{base}.pdf", pdf_bytes)
     for k in list(st.session_state.keys()):
@@ -237,7 +251,8 @@ def _results() -> None:
                               help="문제지 + 정답·해설 분리", type="primary",
                               use_container_width=True, key="main_pdf_dl")
     ts = st.session_state.last_ts
-    set_id = save_panel(full_text, "generated", f"AI 생성 세트 {ts[:8]}", key=f"save_gen_{ts}")
+    set_id = save_hub(full_text, "generated", f"AI 생성 세트 {ts[:8]}", key=f"save_gen_{ts}",
+                      term_rule=st.session_state.get("last_term_rule", ""))
     if view == VIEW_PREVIEW:
         ui.render_markdown(full_text)
     else:

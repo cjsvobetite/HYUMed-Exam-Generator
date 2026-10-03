@@ -43,6 +43,7 @@ p_admin = st.Page(admin.render, title="관리자 대시보드", url_path="admin"
 is_admin = user == ADMIN_ID
 nav = st.navigation([p_generate, p_exam, p_history, p_workspace] + ([p_admin] if is_admin else []),
                     position="hidden")
+st.session_state["_pages"] = {"workspace": p_workspace, "generate": p_generate, "exam": p_exam}
 
 ui.topbar(user)
 with st.sidebar:

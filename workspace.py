@@ -1,7 +1,8 @@
 """학습 공간 — 과목 노트북·단원·문항 세트·복습 세트 만들기.
 
   노트북(과목)  {id, name, emoji, units: [{id, name}], created_at}
-  세트          {id, notebook_id, unit_id, kind: "exam"|"generated", title, n_questions, created_at, markdown}
+  세트          {id, notebook_id, unit_id, kind: "exam"|"generated"|"flashcards", title, n_questions, created_at, markdown}
+                플래시카드 덱(kind="flashcards")은 markdown 칸에 카드 JSON을 넣는다 (flashcards.py).
 
 세트를 풀면 풀이 기록에 set_id와 문항별 정오(detail)·🚩 문항 표시(flagged)가 남는다.
 복습 세트를 풀면 sources({복습 문항 번호: [set_id, 원래 문항 번호]})로 원래 문항에 결과를 되돌려 적는다.
@@ -18,7 +19,8 @@ from datetime import datetime
 
 from store import get_store
 
-KIND_LABEL = {"exam": "기출·문제지", "generated": "AI 생성"}
+KIND_LABEL = {"exam": "기출·문제지", "generated": "AI 생성", "flashcards": "🃏 플래시카드"}
+FLASH = "flashcards"
 EMOJIS = ["🫀", "🧠", "🫁", "🦴", "🧬", "💊", "🦠", "🩸", "🧪", "🩺", "👁️", "🦷"]
 
 # 복습 출처
@@ -115,6 +117,37 @@ def save_set(uid: str, markdown: str, kind: str, title: str, notebook_id: str, u
     return st
 
 
+def save_deck(uid: str, cards: list[dict], title: str, notebook_id: str, unit_id: str | None,
+              source_set_id: str | None = None) -> dict:
+    import flashcards
+    st = {"id": _id(), "notebook_id": notebook_id, "unit_id": unit_id, "kind": FLASH, "title": title.strip(),
+          "n_questions": len(cards), "created_at": _now(), "source_set_id": source_set_id,
+          "markdown": flashcards.dumps(cards)}
+    get_store().save_set(uid, st)
+    return st
+
+
+def deck_cards(uid: str, deck_id: str) -> list[dict]:
+    import flashcards
+    st = get_store().get_set(uid, deck_id)
+    return flashcards.loads(st["markdown"]) if st and st.get("kind") == FLASH else []
+
+
+def rate_card(uid: str, deck_id: str, card_id: str, known: bool) -> None:
+    """플래시카드 '알아요/몰라요' 결과를 덱에 기록한다."""
+    import flashcards
+    st = get_store().get_set(uid, deck_id)
+    if not st or st.get("kind") != FLASH:
+        return
+    cards = flashcards.loads(st["markdown"])
+    for c in cards:
+        if c["id"] == card_id:
+            c["known"] = bool(known)
+            c["reviews"] = int(c.get("reviews", 0)) + 1
+    st["markdown"] = flashcards.dumps(cards)
+    get_store().save_set(uid, st)
+
+
 def move_set(uid: str, set_id: str, notebook_id: str, unit_id: str | None) -> None:
     st = get_store().get_set(uid, set_id)
     if st:
@@ -177,12 +210,15 @@ def question_status(uid: str) -> dict[tuple[str, str], QStatus]:
 
 def notebook_stats(uid: str, nb: dict, status=None) -> dict:
     status = status if status is not None else question_status(uid)
-    sets = get_store().sets(uid, nb["id"])
+    all_sets = get_store().sets(uid, nb["id"])
+    sets = [s for s in all_sets if s.get("kind") != FLASH]
+    decks = [s for s in all_sets if s.get("kind") == FLASH]
     ids = {s["id"] for s in sets}
     wrong = sum(1 for (sid, _), st in status.items() if sid in ids and st.last_correct is False)
     flagged = sum(1 for (sid, _), st in status.items() if sid in ids and st.flagged)
     return {"sets": len(sets), "questions": sum(s.get("n_questions", 0) for s in sets),
-            "wrong": wrong, "flagged": flagged}
+            "wrong": wrong, "flagged": flagged,
+            "decks": len(decks), "cards": sum(s.get("n_questions", 0) for s in decks)}
 
 
 # ─── 복습 세트 ───
@@ -196,7 +232,7 @@ def build_review(uid: str, nb: dict, unit_ids: list | None, sources: list[str], 
     status = question_status(uid)
     picked = []          # (set_id, qid, block)
     for s in get_store().sets(uid, nb["id"], with_markdown=True):
-        if unit_ids is not None and s.get("unit_id") not in unit_ids:
+        if s.get("kind") == FLASH or (unit_ids is not None and s.get("unit_id") not in unit_ids):
             continue
         lines = s["markdown"].split("\n")
         for qid, (a, b) in split_blocks(s["markdown"]).items():
