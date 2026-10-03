@@ -172,3 +172,16 @@ def test_text_input(fake, monkeypatch):
     res = read_exam([], pasted_text="복기 7. 심부전 1차 치료제는? ① 이뇨제 ② ?")
     assert res.pages == 1 and res.questions[0].incomplete
     assert "선지 3개만 기억남" in to_markdown(res.questions)
+
+
+def test_solve_extra_request_reaches_prompt(fake):
+    qs = read_exam([("exam.pdf", _exam_pdf())]).questions
+    seen = []
+    orig = fake.create
+
+    def spy(messages, **kw):
+        seen.append(messages[0]["content"])
+        return orig(messages, **kw)
+    fake.chat.completions.create = spy
+    solve_exam(qs, extra="해설 끝에 암기 팁을 붙여줘")
+    assert seen and all("해설 끝에 암기 팁을 붙여줘" in s and "사용자 해설 요청" in s for s in seen)

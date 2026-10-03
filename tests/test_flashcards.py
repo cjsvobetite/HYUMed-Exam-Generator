@@ -106,3 +106,16 @@ def test_default_prompt_has_no_request(monkeypatch):
     monkeypatch.setattr("llm.get_client", lambda: client)
     assert flashcards.make_flashcards(MD) == []
     assert "사용자 요청 (최우선" not in seen["system"]
+
+
+def test_material_only_uses_default_request(monkeypatch):
+    client, seen = _client([{"front": "Myotome", "back": "근육이 되는 체절 부분"}])
+    monkeypatch.setattr("llm.get_client", lambda: client)
+    cards = flashcards.make_flashcards("", material="=== 강의 자료 ===\n체절은 myotome으로...")
+    assert len(cards) == 1 and flashcards.DEFAULT_MATERIAL_REQUEST in seen["system"]
+    assert "강의 자료 (1/1)" in seen["user"]
+
+
+def test_card_examples_include_medical_english():
+    texts = [t for _, t in flashcards.CARD_EXAMPLES]
+    assert flashcards.EXAMPLE_REQUEST in texts and "의학 영어" in flashcards.EXAMPLE_REQUEST

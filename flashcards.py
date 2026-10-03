@@ -15,7 +15,16 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 FLASH_MODEL = "gpt-4o-mini"
-EXAMPLE_REQUEST = "강의록에 있는 의학용어를 모두 빠짐없이 암기 카드로 만들어줘 (앞면: 용어, 뒷면: 뜻)"
+EXAMPLE_REQUEST = "이 강의록에 나온 의학 영어 용어를 모두 빠짐없이 물어보는 카드로 만들어줘 (앞면: 영어 용어, 뒷면: 한글 뜻)"
+# (버튼 이름, 요청 문구) — 화면에서 예시 버튼으로 보여 준다
+CARD_EXAMPLES = [
+    ("의학 영어 전부", EXAMPLE_REQUEST),
+    ("강조한 핵심만", "교수님이 강조하거나 반복한 핵심 개념만 골라 카드로 만들어줘"),
+    ("질환별 정리", "질환마다 원인·증상·진단·치료를 각각 묻는 카드로 만들어줘"),
+    ("기출 개념 전부", "기출문제에 나온 개념을 하나도 빠짐없이 카드로 만들어줘"),
+]
+# 문항 없이 자료만으로 카드를 만들 때 요청이 비어 있으면 쓰는 기본 요청
+DEFAULT_MATERIAL_REQUEST = "자료 전체에 걸쳐 시험에 나올 핵심 사실을 빠짐없이 카드로 만들어줘 (앞면: 회상 질문, 뒷면: 답과 한 줄 이유)"
 _MAX_QUESTIONS = 60
 _MAX_CARDS = 400
 _CHUNK = 12_000          # 강의 자료를 이 글자 수 단위로 나눠 카드를 만든다
@@ -77,6 +86,8 @@ def make_flashcards(markdown: str, term_rule: str = "", model: str = FLASH_MODEL
                     instruction: str = "", material: str = "") -> list[dict]:
     """instruction: 사용자 요청 (예: EXAMPLE_REQUEST). material: 강의 자료·전사본 원문 (선택)."""
     instruction = instruction.strip()
+    if not instruction and not markdown and material.strip():
+        instruction = DEFAULT_MATERIAL_REQUEST
     system = _PROMPT.format(
         request=f"\n★ 사용자 요청 (최우선 — 카드 수·앞뒷면 구성도 이 요청대로):\n{instruction}\n" if instruction else "",
         term_rule=f"- 의학용어 표기: {term_rule}" if term_rule else "",

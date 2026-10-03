@@ -19,24 +19,27 @@ def _uid() -> str:
 
 # ═════════════════════════ 결과 화면의 '📒 내 노트북에 저장' 허브 ═════════════════════════
 
-def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: str = "") -> str | None:
+def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: str = "",
+             save_questions: bool = True) -> str | None:
     """문항 세트와 플래시카드를 과목·단원 노트북에 저장한다.
     저장된 문항 세트 id를 돌려준다 (이후 CBT 풀이 기록이 이 세트에 연결됨).
-    플래시카드는 세션의 f"{key}_cards"에 미리 만들어 둘 수 있다 (문항 생성 시 자동 생성 옵션)."""
+    플래시카드는 세션의 f"{key}_cards"에 미리 만들어 둘 수 있다 (문항 생성 시 자동 생성 옵션).
+    save_questions=False면 플래시카드만 저장한다 (markdown은 카드를 다시 만들 재료로만 씀)."""
     uid = _uid()
     saved_set = st.session_state.get(f"{key}_saved_set")
     saved_deck = st.session_state.get(f"{key}_saved_deck")
     cards = st.session_state.get(f"{key}_cards")
-    n_q = len(parse_cbt_questions(markdown))
+    n_q = len(parse_cbt_questions(markdown)) if (markdown and save_questions) else 0
 
     with st.container(border=True, key=f"{key}_hub"):
         st.markdown('<div class="hub-hd">📒 내 노트북에 저장</div>'
                     '<div class="hub-sub">과목·단원 노트북에 모아 두면 틀린 문항·🚩 표시 문항·모르는 카드만 골라 다시 볼 수 있어요.</div>',
                     unsafe_allow_html=True)
-        t1, t2 = st.columns(2)
-        with t1:
-            st.markdown(f"**📝 문항 세트** · {n_q}문항")
-            ui.pills([(f"✅ 저장됨 — {saved_set['path']}", "ok")] if saved_set else [("아직 저장 안 함", "warn")])
+        t1, t2 = st.columns(2) if n_q else (None, st.container())
+        if n_q:
+            with t1:
+                st.markdown(f"**📝 문항 세트** · {n_q}문항")
+                ui.pills([(f"✅ 저장됨 — {saved_set['path']}", "ok")] if saved_set else [("아직 저장 안 함", "warn")])
         with t2:
             if cards is None:
                 st.markdown("**🃏 플래시카드** · 아직 안 만듦")
@@ -50,8 +53,8 @@ def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: 
                     st.session_state.setdefault(req_key, st.session_state.get(f"{key}_card_req_default", ""))
                     card_request_box(req_key)
                     has_material = bool(st.session_state.get(f"{key}_material"))
-                    st.caption("재료: 이 문항들" + (" + 올린 강의 자료·전사본" if has_material else "")
-                               + " · 요청을 비우면 문항마다 핵심 카드 1~2장")
+                    src = (["문항"] if markdown else []) + (["올린 자료"] if has_material else [])
+                    st.caption("재료: " + " + ".join(src or ["없음"]))
                     if st.button("🃏 플래시카드 만들기" if cards is None else "🔁 다시 만들기",
                                  key=f"{key}_mkcards", use_container_width=True, type="primary"):
                         _make_cards(markdown, key, term_rule)
@@ -63,7 +66,7 @@ def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: 
                 ui.table([{"앞면": c["front"], "뒷면": c["back"]} for c in cards[:30]], columns=["앞면", "뒷면"],
                          height=320)
 
-        can_set = not saved_set
+        can_set = bool(n_q) and not saved_set
         can_deck = bool(cards) and not saved_deck
         if can_set or can_deck:
             _save_form(uid, markdown, kind, default_title, key, cards, can_set, can_deck)
@@ -77,18 +80,23 @@ def save_hub(markdown: str, kind: str, default_title: str, key: str, term_rule: 
     return saved_set["id"] if saved_set else None
 
 
+def request_box(key: str, label: str, examples: list, help_text: str = "", height: int = 80) -> None:
+    """요청(프롬프트) 입력칸 + 예시 버튼들. examples: [(버튼 이름, 요청 문구)]."""
+    def _fill(text):
+        st.session_state[key] = text
+
+    st.text_area(label, key=key, height=height, placeholder="예: " + examples[0][1], help=help_text or None)
+    cols = st.columns(len(examples) + 1)
+    cols[0].caption("💡 예시")
+    for i, (name, text) in enumerate(examples, 1):
+        cols[i].button(name, key=f"{key}_ex{i}", on_click=_fill, args=(text,), use_container_width=True, help=text)
+
+
 def card_request_box(key: str) -> None:
-    """🃏 카드 만들기 요청 입력칸 + 예시 버튼 (생성 옵션·결과 화면 공용)."""
+    """🃏 카드 만들기 요청 (생성 옵션·문제지 CBT·결과 화면 공용)."""
     import flashcards
-
-    def _example():
-        st.session_state[key] = flashcards.EXAMPLE_REQUEST
-
-    st.text_area("🃏 카드 만들기 요청 (선택)", key=key, height=80,
-                 placeholder=f"예: {flashcards.EXAMPLE_REQUEST}",
-                 help="원하는 카드 종류·범위·앞뒷면 구성을 적으면 그대로 만듭니다. 비우면 문항마다 핵심 카드를 만듭니다.")
-    st.button("💡 예시 넣기", key=f"{key}_example", on_click=_example,
-              help=f"'{flashcards.EXAMPLE_REQUEST}'를 입력칸에 넣습니다.")
+    request_box(key, "🃏 플래시카드 요청 (프롬프트)", flashcards.CARD_EXAMPLES,
+                "원하는 카드 종류·범위·앞뒷면 구성을 적으면 그대로 만듭니다. 비우면 핵심 사실을 카드로 만듭니다.")
 
 
 def _make_cards(markdown: str, key: str, term_rule: str) -> None:
@@ -142,7 +150,7 @@ def _save_form(uid, markdown, kind, default_title, key, cards, can_set, can_deck
 
     w1, w2, b1, b2 = st.columns([1, 1, 1, 1.2])
     # 저장 가능 여부가 바뀌면(예: 카드를 나중에 만듦) 체크박스를 새로 만들어 기본값(체크)을 다시 적용한다
-    want_set = w1.checkbox("📝 문항 세트", value=can_set, disabled=not can_set, key=f"{key}_want_set_{int(can_set)}")
+    want_set = can_set and w1.checkbox("📝 문항 세트", value=True, key=f"{key}_want_set_{int(can_set)}")
     want_deck = w2.checkbox("🃏 플래시카드", value=can_deck, disabled=not can_deck,
                             key=f"{key}_want_deck_{int(can_deck)}")
     b1.button("🤖 자동 분류", key=f"{key}_auto", on_click=_auto, use_container_width=True,
@@ -417,7 +425,8 @@ def _flash_session(uid, nb, key, pool):
         stt["flipped"] = True
 
     def _rate(known):
-        ws.rate_card(uid, deck_id, card["id"], known)
+        if deck_id:                       # 저장 전 '바로 넘겨 보기'는 기록하지 않는다
+            ws.rate_card(uid, deck_id, card["id"], known)
         if known:
             stt["known"] += 1
         else:

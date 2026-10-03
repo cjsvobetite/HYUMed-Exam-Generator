@@ -13,7 +13,15 @@ from constants import BRAND, TERM_LANG_OPTIONS, TERM_LANG_RULE, VIEW_MODES, VIEW
 from exam_import import EXAM_TYPES, read_exam, solve_exam, to_markdown
 from llm import MODELS
 from pdf_export import build_pdf
-from views.workspace import save_hub
+from views.workspace import _flash_session, card_request_box, request_box, save_hub
+
+OUT_Q = "📝 CBT 문항 (해설 포함)"
+OUT_C = "🃏 플래시카드"
+EXPL_EXAMPLES = [
+    ("오답 이유 자세히", "오답 선지마다 왜 틀렸는지 두세 줄로 자세히 설명해줘"),
+    ("암기 팁", "해설 끝에 외우기 쉬운 암기 팁(두문자어 등)을 한 줄씩 붙여줘"),
+    ("짧게", "해설은 핵심 근거만 두세 줄로 짧게 써줘"),
+]
 
 _READ_MODELS = ["gpt-4o", "gpt-4.1", "gpt-5", "o4-mini", "gpt-4o-mini"]
 _FILL = "🛠️ AI가 보완해서 풀기"
@@ -93,21 +101,47 @@ def render() -> None:
         else:
             mode_label = _MARK
             ui.pills([("불완전한 문항 없음", "ok")])
+        outputs = st.pills("만들 것", [OUT_Q, OUT_C], selection_mode="multi", default=[OUT_Q],
+                           key="exam_outputs") or []
+        want_q, want_c = OUT_Q in outputs, OUT_C in outputs
         s1, s2, s3 = st.columns([1, 1.4, 1])
         solve_model = s1.selectbox("해설 모델", MODELS, key="exam_solve_model")
         term_label = s2.selectbox("해설 의학용어 표기", list(TERM_LANG_OPTIONS.keys()), index=2,
                                   key="exam_term")
         s3.markdown("")
         with_expl = s3.checkbox("AI 해설 생성", value=True, key="exam_with_expl",
-                                help="끄면 문제지에 적힌 정답·해설만 씁니다 (API 비용 없음).")
-        if st.button("💡 해설 만들고 CBT 시작" if with_expl else "▶️ 바로 CBT 시작",
-                     type="primary", use_container_width=True):
+                                help="끄면 문제지에 적힌 정답·해설만 씁니다 (API 비용 없음). "
+                                     "플래시카드는 정답·해설을 근거로 만들므로 켜 두는 것을 권장합니다.")
+        if with_expl:
+            request_box("exam_expl_request", "💡 해설 요청 (프롬프트, 선택)", EXPL_EXAMPLES,
+                        "원하는 해설 방식을 적으면 기본 해설 규칙보다 우선해서 반영합니다.", height=68)
+        if want_c:
+            card_request_box("exam_card_request")
+            st.caption("재료: 이 문제지의 문항·정답·해설")
+        label = {(True, True): "💡 해설 만들고 CBT + 🃏 카드", (True, False): "💡 해설 만들고 CBT 시작",
+                 (False, True): "🃏 플래시카드 만들기"}.get((want_q, want_c), "만들기")
+        if not with_expl and want_q and not want_c:
+            label = "▶️ 바로 CBT 시작"
+        if st.button(label, type="primary", use_container_width=True, disabled=not (want_q or want_c)):
             _solve(read, "fill" if mode_label == _FILL else "mark", solve_model,
-                   TERM_LANG_RULE[TERM_LANG_OPTIONS[term_label]], with_expl)
+                   TERM_LANG_RULE[TERM_LANG_OPTIONS[term_label]], with_expl, want_q=want_q, want_c=want_c)
 
     # ── 4. 풀기 ──
     result = st.session_state.get("exam_result")
     if not result or result["read_id"] != read["id"]:
+        return
+    for w in result["warnings"]:
+        st.warning(w)
+    if not result.get("want_q", True):
+        ui.step(4, "플래시카드")
+        cards = st.session_state.get(f"save_exam_{result['base']}_cards") or []
+        st.success(f"✅ 🃏 플래시카드 {len(cards)}장을 만들었습니다.")
+        save_hub(result["md"], "exam", read["title"], key=f"save_exam_{result['base']}",
+                 term_rule=result.get("term_rule", ""), save_questions=False)
+        if cards:
+            with st.expander("🃏 저장 전에 바로 넘겨 보기 (기록되지 않음)"):
+                _flash_session(st.session_state.get("user", ""), None, f"fcprev_{result['base']}",
+                               [(None, c) for c in cards])
         return
     ui.step(4, "풀기")
     top_l, top_r1, top_r2 = st.columns([3, 1, 1])
@@ -119,9 +153,8 @@ def render() -> None:
     top_r2.download_button("⬇️ 마크다운", data=result["md"].encode("utf-8"),
                            file_name=f"{result['base']}.md", mime="text/markdown",
                            use_container_width=True, key="exam_md_dl")
-    for w in result["warnings"]:
-        st.warning(w)
-    set_id = save_hub(result["md"], "exam", read["title"], key=f"save_exam_{result['base']}")
+    set_id = save_hub(result["md"], "exam", read["title"], key=f"save_exam_{result['base']}",
+                      term_rule=result.get("term_rule", ""))
     if view == VIEW_PREVIEW:
         ui.render_markdown(result["md"])
     else:
@@ -165,7 +198,7 @@ def _read(files, pasted, model, sig) -> None:
     st.session_state.pop("exam_result", None)
 
 
-def _solve(read, incomplete_mode, model, term_rule, with_expl) -> None:
+def _solve(read, incomplete_mode, model, term_rule, with_expl, want_q=True, want_c=False) -> None:
     questions = copy.deepcopy(read["questions"])     # 읽은 결과는 그대로 둬서 옵션을 바꿔 다시 만들 수 있게
     warnings = []
     if with_expl:
@@ -176,7 +209,8 @@ def _solve(read, incomplete_mode, model, term_rule, with_expl) -> None:
 
         try:
             warnings = solve_exam(questions, model=model, incomplete_mode=incomplete_mode,
-                                  term_rule=term_rule, on_progress=on_progress)
+                                  term_rule=term_rule, on_progress=on_progress,
+                                  extra=st.session_state.get("exam_expl_request", ""))
         except Exception as e:
             bar.empty()
             st.error(f"해설 생성 실패: {e}")
@@ -192,7 +226,18 @@ def _solve(read, incomplete_mode, model, term_rule, with_expl) -> None:
         f.write(md)
     with open(os.path.join(OUTPUTS_DIR, f"{base}.pdf"), "wb") as f:
         f.write(pdf)
+    key = f"save_exam_{base}"
+    st.session_state[f"{key}_card_req"] = st.session_state.get("exam_card_request", "")
+    if want_c:
+        import flashcards
+        with st.spinner("🃏 플래시카드 만드는 중..."):
+            try:
+                st.session_state[f"{key}_cards"] = flashcards.make_flashcards(
+                    md, term_rule=term_rule, instruction=st.session_state.get("exam_card_request", ""))
+            except Exception as e:
+                warnings.append(f"플래시카드 생성 실패: {e} — 아래 '카드 만들기'로 다시 시도할 수 있습니다.")
     st.session_state["exam_result"] = {
         "read_id": read["id"], "md": md, "pdf": pdf, "base": base,
         "title": f"문제지: {read['title']}", "warnings": warnings,
+        "want_q": want_q, "term_rule": term_rule,
     }
