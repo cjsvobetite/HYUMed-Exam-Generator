@@ -8,6 +8,7 @@ from prompt_loader import build_system_prompt, build_user_prompt
 
 # generate_questions()가 본문 대신 내보내는 알림 — (표식 delta, 내용) 쌍으로 yield
 STATUS = "\n<!-- STATUS -->\n"          # 진행 상황 (화면 진행 문구)
+REPLACE = "\n<!-- REPLACE -->\n"        # 점검·보정 후 전체 결과로 교체
 BLUEPRINT = "\n<!-- BLUEPRINT -->\n"    # 문항별 설계표 (마크다운 표)
 
 MAX_CONTINUATIONS = 4         # 잘렸을 때 최대 이어쓰기 횟수
@@ -70,6 +71,7 @@ def generate_questions(
     variation_mode: str = "",
     transcript_only: bool = False,
     use_blueprint: bool = True,
+    use_quality_check: bool = True,
 ):
     """
     Generator yielding (delta, full_text_so_far).
@@ -175,3 +177,26 @@ def generate_questions(
         # 이어쓰기 트리거
         messages.append({"role": "assistant", "content": chunk_text})
         messages.append({"role": "user",      "content": CONTINUE_PROMPT})
+
+    # ── 생성 후 점검: 설계표 라벨 제거 → 힌트 노출·정답 선지 길이 검사 → 문제 문항만 다시 쓰기 ──
+    if not use_quality_check or not full.strip():
+        return
+    from cbt import parse_cbt_questions
+    from quality import clean_meta, find_issues, repair
+
+    cleaned = clean_meta(full)
+    issues = find_issues(parse_cbt_questions(cleaned))
+    if issues:
+        yield STATUS, f"🔍 힌트가 드러나거나 정답 선지만 긴 문항 {len(issues)}개를 다시 쓰는 중..."
+        try:
+            cleaned, fixed = repair(cleaned, issues, system_prompt, model)
+            cleaned = clean_meta(cleaned)
+            left = len(find_issues(parse_cbt_questions(cleaned)))
+            yield STATUS, f"🔍 점검 완료 — {fixed}문항 보정" + (f", {left}문항은 확인 필요" if left else "")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            yield STATUS, f"⚠️ 문항 보정 실패 ({e}) — 원래 결과를 씁니다."
+    if cleaned != full:
+        yield REPLACE, cleaned
+

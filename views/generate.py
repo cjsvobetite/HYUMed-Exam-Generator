@@ -12,7 +12,7 @@ from constants import (ANSWER_FORMATS, BRAND, CONTENT_TYPES, DEFAULT_ANSWER_FORM
 from extractors import ALL_TYPES, IMAGE_TYPES, TEXT_TYPES, OCRConfig, estimate_tokens, extract_bytes, tesseract_available
 from llm import MODELS
 from pdf_export import autonumber_choices, build_pdf
-from question_generator import BLUEPRINT, STATUS, generate_questions
+from question_generator import BLUEPRINT, REPLACE, STATUS, generate_questions
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -180,6 +180,9 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
                     continue
                 if delta == BLUEPRINT:
                     blueprint = full
+                    continue
+                if delta == REPLACE:
+                    full_text = full
                     continue
                 full_text = full
                 progress.caption(f"{status} ({len(full_text):,}자)")

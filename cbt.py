@@ -196,6 +196,7 @@ def parse_cbt_questions(md):
                 'explanation': explanation,
                 'is_subjective': len(choices) == 0,
                 'images': images,
+                'answer_text': answer_text,
             })
         i = k + 1
     return questions
@@ -213,6 +214,16 @@ def _split_status(line: str):
                 badges.append(badge)
                 changed = True
     return line, badges
+
+
+def _check_button(prefix, cur, shown, shown_key, disabled=False):
+    """문항별 해설 모드: 답을 고른 뒤 눌러야 채점·해설이 나온다 (복수정답을 다 고르기 전에 오답이 뜨지 않게)."""
+    def _reveal():
+        shown.add(cur)
+        st.session_state[shown_key] = shown
+    st.button("✅ 정답 확인", key=f"{prefix}_check_{cur}", on_click=_reveal,
+              type="primary", disabled=disabled,
+              help="답을 고른 뒤 누르세요." if disabled else None)
 
 
 def _set_cur(prefix, idx):
@@ -457,10 +468,10 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         user_ans[qid] = new_sel
         st.session_state[ans_key] = user_ans
 
-        if mode == 'per_q' and new_sel:
+        if answer_revealed:
             _show_result(q, new_sel)
-        elif mode == 'submit_all' and answer_revealed:
-            _show_result(q, new_sel)
+        elif mode == 'per_q':
+            _check_button(session_prefix, cur, shown, shown_key, disabled=not new_sel)
 
     else:
         # 단일정답 — 라디오
@@ -477,10 +488,10 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         user_ans[qid] = new_ua
         st.session_state[ans_key] = user_ans
 
-        if mode == 'per_q' and new_ua:
+        if answer_revealed:
             _show_result(q, new_ua)
-        elif mode == 'submit_all' and answer_revealed:
-            _show_result(q, new_ua)
+        elif mode == 'per_q':
+            _check_button(session_prefix, cur, shown, shown_key, disabled=not new_ua)
 
     st.divider()
 
@@ -526,8 +537,8 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     if mode == 'submit_all' and len(shown) >= total:
         st.markdown("---")
         _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text, title=title)
-    elif mode == 'per_q' and answered_count > 0:
-        done = answered_count >= total
-        with st.expander(f"📊 현재 점수 ({answered_count}/{total})", expanded=done):
+    elif mode == 'per_q' and shown:
+        done = len(shown) >= total          # 모든 문항의 정답을 확인해야 기록 저장
+        with st.expander(f"📊 현재 점수 (정답 확인 {len(shown)}/{total})", expanded=done):
             _show_score(questions, user_ans, session_prefix, user=user,
                         source_text=source_text, save=done, title=title)
