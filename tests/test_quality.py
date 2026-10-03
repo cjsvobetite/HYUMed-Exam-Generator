@@ -1,4 +1,3 @@
-import json
 import types
 
 from cbt import parse_cbt_questions
