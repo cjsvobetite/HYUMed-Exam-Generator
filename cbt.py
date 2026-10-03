@@ -93,6 +93,7 @@ def parse_cbt_questions(md):
         qid = qm.group(1).rstrip('.')
         stem = re.sub(r'\*+', '', qm.group(2)).strip()
         choices, answers, expl_lines, images = [], [], [], []
+        answer_text = ""
         pre_combo_buf = []   # v2.16: 조합형 본선지 임시 버퍼
         depth, in_answer = 1, False
         k = i + 2
@@ -170,6 +171,7 @@ def parse_cbt_questions(md):
             else:
                 am = _ANS_RE.search(l)
                 if am:
+                    answer_text = am.group(1).strip()
                     for tok in re.split(r'[,，\s]+', am.group(1)):
                         idx = _choice_idx(tok.strip())
                         if idx is not None: answers.append(idx)
@@ -183,11 +185,15 @@ def parse_cbt_questions(md):
                     r'^[①-⑳]\s*|^\(\d+\)\s*|^\([가나다라마바사아자차]\)\s*', '', _pc
                 ).strip()
                 choices.append(_body)
+        explanation = '\n'.join(e for e in expl_lines if e).strip()
+        if not choices and answer_text:
+            # 주관식: 정답 줄의 답(모범 답안)을 해설 맨 위에 보여 준다
+            explanation = f"**정답:** {answer_text}" + (f"\n\n{explanation}" if explanation else "")
         if stem:
             questions.append({
                 'id': qid, 'stem': stem, 'choices': choices,
                 'answers': sorted(set(answers)),
-                'explanation': '\n'.join(e for e in expl_lines if e).strip(),
+                'explanation': explanation,
                 'is_subjective': len(choices) == 0,
                 'images': images,
             })

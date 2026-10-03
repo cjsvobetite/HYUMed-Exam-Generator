@@ -7,13 +7,12 @@ import streamlit as st
 from constants import BRAND, TAGLINE
 from images import inline_images_html
 
-_TOPBAR_H = 74
-
 _CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap');
 
 :root {
+  --topbar-h: 74px;          /* 상단 띠 높이 — 화면 폭에 따라 아래 @media에서 줄인다 */
   --bar: #666666;            /* 상단 회색 띠 */
   --line: #99BBE8;           /* 패널 테두리 (연파랑) */
   --line-soft: #C5D5EA;
@@ -26,23 +25,29 @@ html, body, .stApp, .stMarkdown p, .stMarkdown li, label, button p, input, texta
 [data-baseweb="select"] div, [data-testid="stMetricValue"], [data-testid="stMetricLabel"] p {
   font-family: 'Nanum Gothic', 'Malgun Gothic', '맑은 고딕', 'Dotum', '돋움', sans-serif !important;
 }
-#MainMenu, footer, [data-testid="stStatusWidget"], [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none !important; }
-header[data-testid="stHeader"] { top: __TOP__px; background: transparent; height: 2.5rem; }
-.block-container, [data-testid="stMainBlockContainer"] { padding-top: calc(__TOP__px + 14px) !important; max-width: 1280px; }
+/* 툴바 전체를 숨기면 사이드바 여는 버튼까지 사라지므로 배포·메뉴 버튼만 숨긴다 */
+#MainMenu, footer, [data-testid="stStatusWidget"], [data-testid="stDecoration"],
+[data-testid="stToolbarActions"], [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] { display: none !important; }
+header[data-testid="stHeader"] { top: var(--topbar-h); background: transparent; height: 2.5rem; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-top: calc(var(--topbar-h) + 14px) !important; max-width: 1280px; }
 
 /* ── 상단 회색 띠 ── */
 .topbar {
-  position: fixed; top: 0; left: 0; right: 0; height: __TOP__px; z-index: 999990;
+  position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h); z-index: 999990;
   background: var(--bar); color: #fff; padding: 9px 30px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid #555;
 }
-.topbar-title { font-size: 27px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.15; }
-.topbar-sub   { font-size: 15px; letter-spacing: .3px; opacity: .95; margin-top: 3px; }
-.topbar-user  { font-size: 13px; opacity: .9; text-align: right; }
+.topbar > div:first-child { min-width: 0; }
+.topbar-title { font-size: 27px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.15;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-title .short { display: none; }
+.topbar-sub   { font-size: 15px; letter-spacing: .3px; opacity: .95; margin-top: 3px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-user  { font-size: 13px; opacity: .9; text-align: right; white-space: nowrap; flex: none; margin-left: 12px; }
 
 /* ── 왼쪽 트리 ── */
-[data-testid="stSidebar"] { top: __TOP__px !important; height: calc(100vh - __TOP__px) !important;
+[data-testid="stSidebar"] { top: var(--topbar-h) !important; height: calc(100vh - var(--topbar-h)) !important;
   background: #FFFFFF; border-right: 6px solid #E4EAF2; }
 [data-testid="stSidebarContent"] { padding-top: 0; }
 [data-testid="stSidebarHeader"] { height: 0; padding: 0; min-height: 0; }
@@ -165,11 +170,56 @@ table.grid td.empty { text-align: center; color: #888; padding: 18px; background
 .login-hd { background: linear-gradient(#6E6E6E, #555); color: #fff; font-weight: 800; padding: 9px 14px;
   font-size: 15px; letter-spacing: 1px; }
 
+/* ── 선택지 라벨: 좁은 화면에서 "…"로 잘리지 않고 줄바꿈 ── */
+[data-testid="stCheckbox"] label *, [data-testid="stRadio"] label *, [data-testid="stWidgetLabel"] * {
+  white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
+}
+
+/* ── 사이드바 열기 버튼 (사이드바를 접었을 때·모바일) ── */
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] button {
+  background: linear-gradient(#F3F7FC, #D9E5F3) !important; border: 1px solid var(--line) !important;
+  border-radius: 3px !important; color: var(--head-ink) !important;
+}
+[data-testid="stExpandSidebarButton"] { padding: 2px 10px 2px 6px !important; width: auto !important; }
+[data-testid="stExpandSidebarButton"]::after { content: "메뉴"; font-size: 13px; font-weight: 700; margin-left: 4px; }
+
+/* ── iPad (세로·가로) ── */
+@media (max-width: 1100px) {
+  :root { --topbar-h: 62px; }
+  .topbar { padding: 8px 20px; }
+  .topbar-title { font-size: 21px; }
+  .topbar-sub { font-size: 12.5px; }
+  .page-title { font-size: 22px; }
+  /* 4칸짜리 옵션 줄은 2칸씩 두 줄로 */
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"]:nth-child(4)) { flex-wrap: wrap; }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"]:nth-child(4)) > [data-testid="stColumn"] {
+    flex: 1 1 calc(50% - 1rem) !important; min-width: calc(50% - 1rem) !important;
+  }
+}
+
+/* ── 휴대폰 ── */
+@media (max-width: 640px) {
+  :root { --topbar-h: 50px; }
+  .topbar { padding: 6px 14px; }
+  .topbar-title { font-size: 17px; }
+  .topbar-title .long { display: none; }
+  .topbar-title .short { display: inline; }
+  .topbar-sub { font-size: 10.5px; margin-top: 1px; }
+  .topbar-user { font-size: 11.5px; }
+  .block-container, [data-testid="stMainBlockContainer"] { padding-left: 12px !important; padding-right: 12px !important; }
+  .tabstrip .tab { padding: 5px 10px; font-size: 13px; }
+  .tabstrip .tab:not(.on) { display: none; }
+  .page-title { font-size: 20px; }
+  .page-desc { font-size: 12.5px; }
+  .panel-hd { font-size: 14px; }
+  .login-hd { font-size: 14px; }
+}
+
 /* ── 문항 그림 (미리보기) ── */
 img.q-figure { max-width: 100%; max-height: 420px; border: 1px solid #BBB; margin: 6px 0; }
 details { margin: 4px 0; }
 </style>
-""".replace("__TOP__", str(_TOPBAR_H))
+"""
 
 
 def inject_css() -> None:
@@ -181,7 +231,7 @@ def topbar(user: str | None = None) -> None:
     st.markdown(f"""
 <div class="topbar">
   <div>
-    <div class="topbar-title">{BRAND} CBT / 문항 출제 관리 시스템</div>
+    <div class="topbar-title"><span class="long">{BRAND} CBT / 문항 출제 관리 시스템</span><span class="short">{BRAND} CBT</span></div>
     <div class="topbar-sub">We help you easily make and solve your exam questions!</div>
   </div>
   {right}

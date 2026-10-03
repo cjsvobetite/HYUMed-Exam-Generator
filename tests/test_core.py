@@ -82,36 +82,41 @@ def test_completion_kwargs_per_model():
 
 
 def test_transcript_only_option_reaches_prompts(monkeypatch):
-    import types
-
     import question_generator
     from prompt_loader import TRANSCRIPT_ONLY_RULE
 
     sent = []
 
-    class FakeClient:
-        class chat:
-            class completions:
-                @staticmethod
-                def create(messages, **kw):
-                    sent.append(messages)
-                    delta = types.SimpleNamespace(content="문제 1", )
-                    return iter([types.SimpleNamespace(
-                        choices=[types.SimpleNamespace(delta=delta, finish_reason="stop")])])
-
-    monkeypatch.setattr(question_generator, "get_client", lambda: FakeClient)
-
-    def run(transcript, flag):
+    def fake_generate(*a, **kw):
         sent.clear()
-        list(question_generator.generate_questions("슬라이드 내용", transcript, num_mcq=2,
-                                                   transcript_only=flag))
-        system, user = sent[0][0]["content"], sent[0][1]["content"]
-        return system, user
+        list(question_generator.generate_questions(*a, use_blueprint=False, **kw))
+        return sent[-1][0]["content"], sent[-1][1]["content"]
 
-    system, user = run("교수님 설명", True)
-    assert TRANSCRIPT_ONLY_RULE in system and TRANSCRIPT_ONLY_RULE in user
-    assert "전사본에 없는 내용은 출제 금지" in user
-    system, user = run("교수님 설명", False)
+    monkeypatch.setattr(question_generator, "get_client", lambda: _fake_stream_client(sent))
+    system, user = fake_generate("슬라이드 내용", "교수님 설명", num_mcq=2, transcript_only=True)
+    assert TRANSCRIPT_ONLY_RULE in system
+    assert "전사본에 없는 내용은 출제 금지" in user and "유일한 출제 범위" in user
+    system, user = fake_generate("슬라이드 내용", "교수님 설명", num_mcq=2, transcript_only=False)
     assert TRANSCRIPT_ONLY_RULE not in system + user
-    system, user = run("", True)               # 전사본이 없으면 옵션 무시
+    system, user = fake_generate("슬라이드 내용", "", num_mcq=2, transcript_only=True)   # 전사본 없으면 무시
     assert TRANSCRIPT_ONLY_RULE not in system + user
+
+
+def _fake_stream_client(sent, topics_json=None):
+    """주제 뽑기(JSON) 요청과 문항 생성(stream) 요청을 구분해 흉내 내는 가짜 OpenAI 클라이언트."""
+    import json
+    import types
+
+    class Completions:
+        @staticmethod
+        def create(messages, **kw):
+            sent.append(messages)
+            if kw.get("response_format"):
+                if topics_json is None:
+                    raise ValueError("topic error")
+                msg = types.SimpleNamespace(content=json.dumps(topics_json, ensure_ascii=False))
+                return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+            delta = types.SimpleNamespace(content="문제 1")
+            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta, finish_reason="stop")])])
+
+    return types.SimpleNamespace(chat=types.SimpleNamespace(completions=Completions))

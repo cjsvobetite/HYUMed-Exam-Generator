@@ -2,15 +2,20 @@ import time
 
 from openai import RateLimitError
 
+from blueprint import extract_topics, make_blueprint, render_blueprint
 from llm import completion_kwargs, get_client, input_limit, max_output_tokens
 from prompt_loader import build_system_prompt, build_user_prompt
+
+# generate_questions()가 본문 대신 내보내는 알림 — (표식 delta, 내용) 쌍으로 yield
+STATUS = "\n<!-- STATUS -->\n"          # 진행 상황 (화면 진행 문구)
+BLUEPRINT = "\n<!-- BLUEPRINT -->\n"    # 문항별 설계표 (마크다운 표)
 
 MAX_CONTINUATIONS = 4         # 잘렸을 때 최대 이어쓰기 횟수
 MAX_RETRY = 3                 # 429 재시도 최대 횟수
 
 CONTINUE_PROMPT = (
     "출력이 토큰 한도로 끊겼습니다. **끊긴 지점부터 같은 번호 체계와 형식**을 "
-    "유지하며 이어서 작성하시오. 이미 출력한 문항은 반복하지 말고 **다음 문항부터** "
+    "유지하며 이어서 작성하시오. 이미 출력한 문항은 반복하지 말고 설계표의 **다음 문항부터** "
     "시작. 마지막에 반드시 **전체 정답표 토글**까지 포함해서 마무리할 것."
 )
 
@@ -64,6 +69,7 @@ def generate_questions(
     past_exam_text: str = "",
     variation_mode: str = "",
     transcript_only: bool = False,
+    use_blueprint: bool = True,
 ):
     """
     Generator yielding (delta, full_text_so_far).
@@ -104,12 +110,31 @@ def generate_questions(
             )
             yield f"\n<!-- TRIM_NOTICE: {trimmed_notice} -->\n", trimmed_notice
 
-    # answer_formats + term_lang_rule을 system_prompt에도 주입 (v2.16)
     transcript_only = transcript_only and bool(transcript_text.strip())
+
+    # ── 출제 설계표: 강의에서 겹치지 않는 출제 포인트를 뽑아 문항마다 하나씩 배정 ──
+    blueprint = ""
+    if use_blueprint:
+        yield STATUS, "🧭 강의 전체에서 겹치지 않는 출제 포인트를 정리하는 중..."
+        try:
+            topics = extract_topics(transcript_text, lecture_text, num_mcq + num_short,
+                                    transcript_only=transcript_only)
+        except RuntimeError:
+            raise
+        except Exception as e:
+            topics = []
+            yield STATUS, f"⚠️ 출제 포인트 정리 실패 ({e}) — 강의를 4구간으로 나눠 출제합니다."
+        slots = make_blueprint(num_mcq + num_short, answer_formats, content_types, topics)
+        blueprint = render_blueprint(slots)
+        yield BLUEPRINT, blueprint
+        if topics:
+            yield STATUS, f"✍️ 출제 포인트 {len(topics)}개 중 {len(slots)}개를 골라 문항을 쓰는 중..."
+
     system_prompt = build_system_prompt(extra_instructions,
                                         answer_formats=answer_formats,
                                         term_lang_rule=term_lang_rule,
-                                        transcript_only=transcript_only)
+                                        transcript_only=transcript_only,
+                                        difficulty=difficulty)
     user_prompt = build_user_prompt(
         lecture_text, transcript_text,
         answer_formats, content_types,
@@ -118,6 +143,7 @@ def generate_questions(
         past_exam_text=past_exam_text,
         variation_mode=variation_mode,
         transcript_only=transcript_only,
+        blueprint=blueprint,
     )
     messages = [
         {"role": "system", "content": system_prompt},

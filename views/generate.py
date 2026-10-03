@@ -7,12 +7,12 @@ import ui
 from cbt import parse_cbt_questions, render_cbt
 from config import OUTPUTS_DIR
 from constants import (ANSWER_FORMATS, BRAND, CONTENT_TYPES, DEFAULT_ANSWER_FORMATS, DIFFICULTIES,
-                       OCR_MODE_OPTIONS, TERM_LANG_OPTIONS, TERM_LANG_RULE, VIEW_MODES, VIEW_PREVIEW,
-                       cbt_mode_value)
+                       OCR_MODE_OPTIONS, TERM_LANG_OPTIONS, TERM_LANG_RULE, VIEW_CBT_PER_Q, VIEW_MODES,
+                       VIEW_PREVIEW, cbt_mode_value)
 from extractors import ALL_TYPES, IMAGE_TYPES, TEXT_TYPES, OCRConfig, estimate_tokens, extract_bytes, tesseract_available
 from llm import MODELS
 from pdf_export import autonumber_choices, build_pdf
-from question_generator import generate_questions
+from question_generator import BLUEPRINT, STATUS, generate_questions
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -158,8 +158,9 @@ def render() -> None:
 
 def _generate(lecture_text, transcript_text, answer_formats, content_types, num_mcq, difficulty,
               extra, term_rule, past_text, variation_mode, model, transcript_only=False) -> None:
-    full_text = ""
+    full_text, blueprint = "", ""
     progress = st.empty()
+    status = "⏳ 준비 중..."
     with st.spinner(f"{model} 작업 중 (40문항 기준 1~3분)..."):
         try:
             for delta, full in generate_questions(
@@ -173,8 +174,15 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
                 if delta.startswith("\n<!-- TRIM_NOTICE"):
                     st.warning(full)
                     continue
+                if delta == STATUS:
+                    status = full
+                    progress.caption(status)
+                    continue
+                if delta == BLUEPRINT:
+                    blueprint = full
+                    continue
                 full_text = full
-                progress.caption(f"⏳ 생성 중... {len(full_text):,}자")
+                progress.caption(f"{status} ({len(full_text):,}자)")
         except Exception as e:
             st.error(f"생성 실패: {e}")
             return
@@ -191,7 +199,9 @@ def _generate(lecture_text, transcript_text, answer_formats, content_types, num_
     pdf_bytes = build_pdf(full_text, title=f"{BRAND} 문항 세트 — {af_label} / {ct_label}")
 
     st.session_state.last_full_text = full_text
+    st.session_state.last_blueprint = blueprint
     st.session_state.last_ts = ts
+    st.session_state.display_mode_radio = VIEW_CBT_PER_Q      # 생성 직후에는 바로 CBT로
     st.session_state.last_pdf = (f"{base}.pdf", pdf_bytes)
     for k in list(st.session_state.keys()):
         if k.startswith("cbt_"):
@@ -210,8 +220,13 @@ def _results() -> None:
     st.divider()
     top_l, top_m, top_r = st.columns([2, 2, 1])
     top_l.success(f"✅ 생성 완료 — {len(full_text):,}자")
+    if "display_mode_radio" not in st.session_state:
+        st.session_state.display_mode_radio = VIEW_CBT_PER_Q
     view = top_m.radio("보기 방식", VIEW_MODES, horizontal=True, key="display_mode_radio",
                        label_visibility="collapsed")
+    if st.session_state.get("last_blueprint"):
+        with st.expander("🧭 출제 설계표 — 문항마다 배정된 출제 포인트·묻는 방식"):
+            st.markdown(st.session_state.last_blueprint)
     if st.session_state.get("last_pdf"):
         name, data = st.session_state.last_pdf
         top_r.download_button("📄 PDF", data=data, file_name=name, mime="application/pdf",
