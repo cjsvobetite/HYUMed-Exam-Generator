@@ -26,7 +26,7 @@ def render() -> None:
             for i, r in enumerate(hist)]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    ui.step("↻", "오답 재풀이", "회차를 고르면 그 회차에서 틀린 문항만 다시 풉니다.")
+    ui.step(None, "오답 재풀이", "회차를 고르면 그 회차에서 틀린 문항만 다시 풉니다.")
     sel_idx = st.selectbox(
         "재풀이할 회차", options=list(range(len(hist))),
         format_func=lambda x: f"#{x + 1}  {hist[x]['ts']}  {hist[x].get('title') or ''}  정답률 {hist[x]['pct']}%",

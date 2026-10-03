@@ -5,8 +5,10 @@ import ui
 
 
 def render() -> None:
-    ui.hero("로그인", "강의 자료로 문항을 만들고, 문제지를 CBT로 풀어 보세요.")
-    _, mid, _ = st.columns([1, 1.4, 1])
+    st.markdown('<div style="height:60px"></div>', unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.2, 1])
+    with mid:
+        st.markdown('<div class="login-hd">■ LOGIN</div>', unsafe_allow_html=True)
     with mid, st.container(border=True):
         tab_login, tab_signup = st.tabs(["로그인", "회원가입"])
         with tab_login:
@@ -33,3 +35,4 @@ def render() -> None:
                     st.error(err)
                 else:
                     st.success("✅ 가입 완료. 로그인 탭에서 로그인하세요.")
+        st.caption("※ 비밀번호는 숫자 4자리입니다. 분실 시 관리자에게 문의하세요.")
