@@ -21,10 +21,8 @@ def render() -> None:
 
     tab1, tab2, tab3 = st.tabs(["👥 유저 목록", "📊 사용 통계", "📋 전체 풀이 기록"])
     with tab1:
-        if not all_users:
-            st.info("가입된 유저가 없습니다.")
-        else:
-            rows = []
+        rows = []
+        if all_users:
             for uid in all_users:
                 h = all_history.get(uid, [])
                 rows.append({
@@ -33,7 +31,8 @@ def render() -> None:
                     "평균 정답률": f"{sum(a.get('pct', 0) for a in h) / len(h):.1f}%" if h else "-",
                     "마지막 풀이": max(a.get("ts", "") for a in h)[:16] if h else "없음",
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        ui.table(rows, columns=["아이디", "총 풀이 횟수", "평균 정답률", "마지막 풀이"], height=420,
+                 center=("평균 정답률", "마지막 풀이"))
 
     with tab2:
         if all_history:
@@ -57,7 +56,7 @@ def render() -> None:
         rows = [{"회차": i, "날짜/시각": a.get("ts", "")[:16], "세트": a.get("title") or "-",
                  "정답률": f"{a.get('pct', 0)}%", "총 문항": a.get("total", "-"),
                  "정답 수": a.get("correct", "-")} for i, a in enumerate(uh, 1)]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        ui.table(rows, height=360, center=("날짜/시각", "정답률"))
         idx = st.selectbox("회차 선택 → 틀린 문항", range(len(rows)),
                            format_func=lambda i: f"{rows[i]['회차']}회차 ({rows[i]['날짜/시각']})",
                            key="admin_sel")

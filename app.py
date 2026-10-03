@@ -28,7 +28,7 @@ nav = st.navigation([p_generate, p_exam, p_history] + ([p_admin] if is_admin els
 
 ui.topbar(user)
 with st.sidebar:
-    st.markdown(f'<div class="tree-head"><span>{user}</span><span>«</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="tree-head"><span>{user}</span></div>', unsafe_allow_html=True)
     nodes = [
         (0, "root", None, False),
         (1, "문항 출제", None, False),

@@ -4,7 +4,6 @@ import hashlib
 import os
 from datetime import datetime
 
-import pandas as pd
 import streamlit as st
 
 import ui
@@ -71,7 +70,7 @@ def render() -> None:
     m3.metric("그림 포함", f"{sum(bool(q.images) for q in qs)}개")
     m4.metric("정답 표기됨", f"{sum(q.given_answer for q in qs)}개")
     with st.expander("문항 목록 보기", expanded=n_incomplete > 0):
-        st.dataframe(pd.DataFrame([{
+        ui.table([{
             "번호": q.number,
             "발문": (q.stem.splitlines() or [""])[0][:60],
             "선지": len(q.choices),
@@ -81,7 +80,7 @@ def render() -> None:
                 "정답 있음" if q.given_answer else "",
             ])) or "정상",
             "빠진 부분": q.incomplete_note,
-        } for q in qs]), use_container_width=True, hide_index=True)
+        } for q in qs], height=420, center=("번호", "상태"))
 
     # ── 3. 해설 ──
     ui.step(3, "해설지 만들기")

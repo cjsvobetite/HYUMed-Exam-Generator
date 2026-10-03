@@ -1,4 +1,3 @@
-import pandas as pd
 import streamlit as st
 
 import ui
@@ -12,7 +11,8 @@ def render() -> None:
     ui.hero("복습 기록", f"{user}님의 CBT 풀이 기록과 오답 재풀이")
     hist = load_history(user) if user else []
     if not hist:
-        st.info("아직 제출 기록이 없습니다. CBT에서 문항을 다 풀면 자동으로 저장됩니다.")
+        ui.table([], columns=["#", "날짜", "세트", "총 문항", "정답", "정답률", "틀린 문항 수"])
+        st.caption("CBT에서 문항을 다 풀면 자동으로 저장됩니다.")
         return
 
     avg = sum(r["pct"] for r in hist) / len(hist)
@@ -24,7 +24,7 @@ def render() -> None:
     rows = [{"#": i + 1, "날짜": r["ts"], "세트": r.get("title") or "-", "총 문항": r["total"],
              "정답": r["correct"], "정답률": f"{r['pct']}%", "틀린 문항 수": len(r["wrong_ids"])}
             for i, r in enumerate(hist)]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    ui.table(rows, height=360, center=("날짜", "정답률"))
 
     ui.step(None, "오답 재풀이", "회차를 고르면 그 회차에서 틀린 문항만 다시 풉니다.")
     sel_idx = st.selectbox(

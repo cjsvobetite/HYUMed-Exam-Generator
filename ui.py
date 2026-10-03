@@ -1,4 +1,5 @@
 """공통 디자인: 스타일, 페이지 헤더, 단계 제목, 배지, 마크다운 렌더."""
+import html
 import re
 
 import streamlit as st
@@ -45,6 +46,8 @@ header[data-testid="stHeader"] { top: __TOP__px; background: transparent; height
   background: #FFFFFF; border-right: 6px solid #E4EAF2; }
 [data-testid="stSidebarContent"] { padding-top: 0; }
 [data-testid="stSidebarHeader"] { height: 0; padding: 0; min-height: 0; }
+[data-testid="stSidebarCollapseButton"] { position: absolute; right: 8px; top: 8px; z-index: 5; }
+[data-testid="stSidebarCollapseButton"] button { color: var(--head-ink) !important; }
 [data-testid="stSidebarUserContent"] { padding: 0 !important; }
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] { margin: 0 !important; }
@@ -133,6 +136,23 @@ button[role="tab"][aria-selected="true"] p { color: #15428B !important; font-wei
 [data-testid="stAlert"] { border-radius: 0 !important; }
 hr { border-color: #D5DEEA !important; }
 
+/* ── 표: 학사 시스템 그리드 ── */
+.grid-wrap { border: 1px solid var(--line); background: #fff; overflow: auto; margin: 4px 0 12px 0; }
+table.grid { border-collapse: collapse; width: 100%; font-size: 14px; margin: 0 !important; }
+.grid-wrap + p, .stMarkdown:has(.grid-wrap) p:empty { display: none; }
+table.grid th {
+  position: sticky; top: 0; z-index: 1;
+  background: linear-gradient(#FAFAFA, #E6E6E6); color: #222; font-weight: 700; text-align: center;
+  padding: 9px 8px; border-right: 1px dotted #C8C8C8; border-bottom: 1px solid #C4C4C4; white-space: nowrap;
+}
+table.grid th:last-child, table.grid td:last-child { border-right: none; }
+table.grid td { padding: 7px 8px; border-right: 1px dotted #DADADA; border-bottom: 1px solid #ECECEC; color: #222; }
+table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.grid td.ctr { text-align: center; }
+table.grid tbody tr:nth-child(even) td { background: #FAFAFA; }
+table.grid tbody tr:hover td { background: #EAF1FB; }
+table.grid td.empty { text-align: center; color: #888; padding: 18px; background: #fff !important; }
+
 /* ── 배지: 대괄호 느낌의 각진 표식 ── */
 .pill { display: inline-block; padding: 1px 8px; border-radius: 2px; font-size: 12.5px; font-weight: 700;
         margin: 0 4px 6px 0; border: 1px solid; }
@@ -204,6 +224,28 @@ def tree(nodes, current_title: str) -> None:
                         unsafe_allow_html=True)
         else:
             st.page_link(page, label=f"{guide}{icon} {label}")
+
+
+def table(rows: list[dict], columns: list[str] | None = None, height: int | None = None,
+          center: tuple = (), empty: str = "조회된 데이터가 없습니다.") -> None:
+    """학사 시스템 느낌의 HTML 표. 숫자 칸은 오른쪽, center에 든 칸은 가운데 정렬."""
+    columns = columns or (list(rows[0].keys()) if rows else [])
+    head = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
+    if rows:
+        body = []
+        for r in rows:
+            cells = []
+            for c in columns:
+                v = r.get(c, "")
+                cls = "num" if isinstance(v, (int, float)) and not isinstance(v, bool) else ("ctr" if c in center else "")
+                cells.append(f'<td class="{cls}">{html.escape("" if v is None else str(v))}</td>')
+            body.append("<tr>" + "".join(cells) + "</tr>")
+        body = "".join(body)
+    else:
+        body = f'<tr><td class="empty" colspan="{max(len(columns), 1)}">{html.escape(empty)}</td></tr>'
+    style = f' style="max-height:{height}px"' if height else ""
+    st.markdown(f'<div class="grid-wrap"{style}><table class="grid"><thead><tr>{head}</tr></thead>'
+                f"<tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
 
 
 def pills(items) -> None:

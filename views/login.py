@@ -1,7 +1,6 @@
 import streamlit as st
 
 import auth
-import ui
 
 
 def render() -> None:
