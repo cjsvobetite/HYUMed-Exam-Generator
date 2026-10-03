@@ -13,6 +13,7 @@ from constants import BRAND, TERM_LANG_OPTIONS, TERM_LANG_RULE, VIEW_MODES, VIEW
 from exam_import import EXAM_TYPES, read_exam, solve_exam, to_markdown
 from llm import MODELS
 from pdf_export import build_pdf
+from views.workspace import save_panel
 
 _READ_MODELS = ["gpt-4o", "gpt-4.1", "gpt-5", "o4-mini", "gpt-4o-mini"]
 _FILL = "🛠️ AI가 보완해서 풀기"
@@ -120,12 +121,13 @@ def render() -> None:
                            use_container_width=True, key="exam_md_dl")
     for w in result["warnings"]:
         st.warning(w)
+    set_id = save_panel(result["md"], "exam", read["title"], key=f"save_exam_{result['base']}")
     if view == VIEW_PREVIEW:
         ui.render_markdown(result["md"])
     else:
         render_cbt(parse_cbt_questions(result["md"]), mode=cbt_mode_value(view),
                    session_prefix=f"exam_{result['base']}", user=st.session_state.get("user", ""),
-                   source_text=result["md"], title=result["title"])
+                   source_text=result["md"], title=result["title"], set_id=set_id)
 
 
 def _signature(files, pasted: str) -> str:

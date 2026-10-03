@@ -4,7 +4,7 @@ import streamlit as st
 import ui
 from config import ADMIN_ID
 from constants import BRAND
-from views import admin, exam_cbt, generate, history_view, login
+from views import admin, exam_cbt, generate, history_view, login, workspace
 
 st.set_page_config(page_title=f"{BRAND} CBT", page_icon="🐈", layout="wide")
 ui.inject_css()
@@ -22,9 +22,11 @@ user = st.session_state.user
 p_generate = st.Page(generate.render, title="AI 문항 생성", url_path="generate", default=True)
 p_exam = st.Page(exam_cbt.render, title="문제지 CBT", url_path="exam")
 p_history = st.Page(history_view.render, title="복습 기록", url_path="history")
+p_workspace = st.Page(workspace.render, title="내 노트북", url_path="workspace")
 p_admin = st.Page(admin.render, title="관리자 대시보드", url_path="admin")
 is_admin = user == ADMIN_ID
-nav = st.navigation([p_generate, p_exam, p_history] + ([p_admin] if is_admin else []), position="hidden")
+nav = st.navigation([p_generate, p_exam, p_history, p_workspace] + ([p_admin] if is_admin else []),
+                    position="hidden")
 
 ui.topbar(user)
 with st.sidebar:
@@ -33,6 +35,8 @@ with st.sidebar:
         (0, "root", None, False),
         (1, "문항 출제", None, False),
         (2, "AI 문항 생성", p_generate, True),
+        (1, "학습 공간", None, False),
+        (2, "내 노트북", p_workspace, True),
         (1, "CBT 응시", None, not is_admin),
         (2, "문제지 CBT", p_exam, False),
         (2, "복습 기록", p_history, True),
