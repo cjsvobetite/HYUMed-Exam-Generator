@@ -3,12 +3,14 @@ from io import BytesIO
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.platypus import Image as RLImage
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.pdfmetrics import registerFontFamily
 
 from config import ensure_fonts
+from images import IMG_RE, image_path
 
 try:
     _REGULAR, _BOLD = ensure_fonts()
@@ -120,7 +122,7 @@ def _is_blocking(line: str) -> bool:
     s = line.strip()
     if not s:
         return True
-    if s.startswith(("#", ">", "```", "---", "✅", "❌", "📌", "💡")):
+    if s.startswith(("#", ">", "```", "---", "✅", "❌", "📌", "💡", "📝", "![")):
         return True
     if re.match(r"^\**\s*(정답|해설|답|Answer|Explanation)\s*[:：]?", s):
         return True
@@ -309,6 +311,10 @@ def _render_md(md: str, s: dict) -> list:
     story, in_code = [], False
     for raw in lines:
         line = raw.rstrip()
+        im = IMG_RE.fullmatch(line.strip())
+        if im and not in_code:
+            story += _figure(im.group(1), s)
+            continue
         if line.startswith("```"):
             in_code = not in_code
             continue
@@ -330,6 +336,9 @@ def _render_md(md: str, s: dict) -> list:
             story.append(Paragraph(_md_inline(line[3:]), s["h2"]))
         elif line.startswith("### "):
             story.append(Paragraph(_md_inline(line[4:]), s["h3"]))
+        elif line.lstrip().startswith(">"):
+            # 인용(증례·보기 박스) — '>' 기호 없이 들여쓰기만
+            story.append(Paragraph("&nbsp;&nbsp;&nbsp;&nbsp;" + _md_inline(line.lstrip()[1:].strip()), s["body"]))
         elif line.strip().startswith(("- ", "* ")):
             story.append(Paragraph("&nbsp;&nbsp;• " + _md_inline(line.strip()[2:]), s["body"]))
         elif line.strip():
@@ -337,6 +346,22 @@ def _render_md(md: str, s: dict) -> list:
         else:
             story.append(Spacer(1, 6))
     return story
+
+
+_FIG_MAX_W, _FIG_MAX_H = 380, 260
+
+
+def _figure(img_id: str, s: dict) -> list:
+    path = image_path(img_id)
+    if not path:
+        return [Paragraph("[그림 파일을 찾을 수 없습니다]", s["small"])]
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        w, h = im.size
+    ratio = min(_FIG_MAX_W / w, _FIG_MAX_H / h, 1.0)
+    fig = RLImage(str(path), width=w * ratio, height=h * ratio)
+    fig.hAlign = "LEFT"
+    return [Spacer(1, 4), fig, Spacer(1, 6)]
 
 
 def build_pdf(markdown_text: str, title: str = "AI 문항 세트") -> bytes:

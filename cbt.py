@@ -19,9 +19,18 @@ v2.11 성능 최적화:
 - st.rerun() 제거 → fragment 내부는 state 변경 후 자동 재렌더되므로 불필요.
 """
 import re
+
 import streamlit as st
+
+from history import get_wrong_questions, is_graded, save_attempt
+from images import IMG_RE, image_path
 from pdf_export import build_pdf
-from history import save_attempt, get_wrong_questions
+
+# 문제지 CBT에서 붙이는 문항 상태 표시 (exam_import.INCOMPLETE_TAG / AI_FILLED_TAG)
+_STATUS_TAGS = {
+    "(문항 복기 불완전)": ("복기 불완전", "warn"),
+    "(AI 보완)": ("AI 보완", "info"),
+}
 
 _CIRCLES = "①②③④⑤⑥⑦⑧⑨⑩"
 _CIRCLE_IDX = {c: i for i, c in enumerate(_CIRCLES)}
@@ -83,7 +92,7 @@ def parse_cbt_questions(md):
             continue
         qid = qm.group(1).rstrip('.')
         stem = re.sub(r'\*+', '', qm.group(2)).strip()
-        choices, answers, expl_lines = [], [], []
+        choices, answers, expl_lines, images = [], [], [], []
         pre_combo_buf = []   # v2.16: 조합형 본선지 임시 버퍼
         depth, in_answer = 1, False
         k = i + 2
@@ -108,6 +117,11 @@ def parse_cbt_questions(md):
             if not in_answer:
                 # v2.16 fix: 빈 줄은 pre_combo_buf를 flush하지 않고 무시
                 if not ls:
+                    k += 1
+                    continue
+                im = IMG_RE.fullmatch(ls)
+                if im:
+                    images.append(im.group(1))
                     k += 1
                     continue
                 is_choice_line = bool(
@@ -175,9 +189,24 @@ def parse_cbt_questions(md):
                 'answers': sorted(set(answers)),
                 'explanation': '\n'.join(e for e in expl_lines if e).strip(),
                 'is_subjective': len(choices) == 0,
+                'images': images,
             })
         i = k + 1
     return questions
+
+
+def _split_status(line: str):
+    """발문 첫 줄 앞의 '(문항 복기 불완전)' 같은 표시를 떼어 배지로 돌려준다."""
+    badges = []
+    changed = True
+    while changed:
+        changed = False
+        for tag, badge in _STATUS_TAGS.items():
+            if line.startswith(tag):
+                line = line[len(tag):].lstrip()
+                badges.append(badge)
+                changed = True
+    return line, badges
 
 
 def _set_cur(prefix, idx):
@@ -187,6 +216,10 @@ def _set_cur(prefix, idx):
 def _show_result(q, ua):
     """선택형 정오 표시."""
     if not q['answers']:
+        st.info("정답이 제공되지 않은 문항이라 채점하지 않습니다.")
+        if q['explanation']:
+            with st.expander("📖 해설", expanded=True):
+                st.markdown(q['explanation'])
         return
     ok = sorted(q['answers']) == sorted(ua)
     if ok:
@@ -199,12 +232,13 @@ def _show_result(q, ua):
             st.markdown(q['explanation'])
 
 
-def _show_score(questions, user_ans, prefix, user="", source_text="", save=True):
+def _show_score(questions, user_ans, prefix, user="", source_text="", save=True, title=""):
     """점수 패널. save=False면 점수만 보여주고 기록은 남기지 않는다 (문항별 모드 진행 중)."""
-    obj_qs = [q for q in questions if not q['is_subjective']]
+    obj_qs = [q for q in questions if is_graded(q)]
     if not obj_qs:
-        st.info("객관식 문항이 없어 점수를 매기지 않습니다.")
+        st.info("채점할 수 있는 객관식 문항이 없습니다.")
         return
+    skipped = sum(1 for q in questions if not q['is_subjective'] and not q['answers'])
     correct = sum(
         1 for q in obj_qs
         if q['answers'] and sorted(q['answers']) == sorted(
@@ -215,6 +249,8 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True)
     pct = int(correct / denom * 100)
     st.metric("🎯 점수 (객관식)", f"{correct} / {denom}  ({pct}%)",
               delta="Pass ✅" if pct >= 60 else "Fail ❌")
+    if skipped:
+        st.caption(f"정답이 없는 {skipped}문항은 채점에서 뺐습니다.")
     if not save:
         st.caption("모든 문항을 풀면 기록이 저장됩니다.")
         return
@@ -224,7 +260,7 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True)
     # ── v2.14: 풀이 기록 저장 ──
     if user and not st.session_state.get(f"{prefix}_saved"):
         try:
-            record = save_attempt(user, questions, user_ans, full_text=source_text)
+            record = save_attempt(user, questions, user_ans, full_text=source_text, title=title)
             st.session_state[f"{prefix}_saved"] = True
             st.session_state[f"{prefix}_wrong_ids"] = record["wrong_ids"]
             st.caption(f"📝 기록 저장됨 — {record['ts']}")
@@ -270,7 +306,7 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True)
 
 
 @st.fragment
-def render_cbt(questions, mode, session_prefix, user="", source_text=None):
+def render_cbt(questions, mode, session_prefix, user="", source_text=None, title=""):
     """CBT UI — 문항 1개씩 표시, 상단 번호 버튼 네비게이션.
 
     @st.fragment: 이 함수 내부의 위젯 변경은 전체 앱을 재실행하지 않고
@@ -278,6 +314,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None):
 
     mode: 'per_q' | 'submit_all'
     source_text: 기록·PDF에 쓸 원본 마크다운 (기본값: 마지막 생성 결과)
+    title: 풀이 기록에 남길 세트 이름
     """
     if source_text is None:
         source_text = st.session_state.get("last_full_text", "")
@@ -359,9 +396,19 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None):
     with col_stem:
         # v2.16: stem에 '\n' 포함 시 (케이스형 증례 설명 등) 제목과 본문 분리 렌더링
         _stem_parts = q['stem'].split('\n', 1)
-        st.markdown(f"### {cur+1}. {_stem_parts[0]}")
+        _title, _badges = _split_status(_stem_parts[0])
+        st.markdown(f"### {cur+1}. {_title}")
+        if _badges:
+            st.markdown(" ".join(f'<span class="pill pill-{kind}">{label}</span>'
+                                 for label, kind in _badges), unsafe_allow_html=True)
         if len(_stem_parts) > 1 and _stem_parts[1].strip():
             st.markdown(_stem_parts[1].replace('\n', '  \n'), unsafe_allow_html=False)
+        for _img_id in q.get('images', []):
+            _path = image_path(_img_id)
+            if _path:
+                st.image(str(_path))
+            else:
+                st.caption("🖼️ 그림 파일을 찾을 수 없습니다 (서버 재시작 등으로 삭제됨).")
     with col_flag:
         st.button(flag_label, key=f"{session_prefix}_flag_{cur}",
                   on_click=_toggle_flag, use_container_width=True)
@@ -466,15 +513,15 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None):
         st.subheader(f"🔁 오답 재풀이 ({len(retry_qs)}문항)")
         render_cbt(retry_qs, mode=mode,
                    session_prefix=f"{session_prefix}_retry", user=user,
-                   source_text=source_text)
+                   source_text=source_text, title=f"{title} (오답 재풀이)" if title else "오답 재풀이")
         return
 
     # ── 점수 패널 ──
     if mode == 'submit_all' and len(shown) >= total:
         st.markdown("---")
-        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text)
+        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text, title=title)
     elif mode == 'per_q' and answered_count > 0:
         done = answered_count >= total
         with st.expander(f"📊 현재 점수 ({answered_count}/{total})", expanded=done):
             _show_score(questions, user_ans, session_prefix, user=user,
-                        source_text=source_text, save=done)
+                        source_text=source_text, save=done, title=title)

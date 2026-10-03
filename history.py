@@ -21,20 +21,25 @@ from config import HISTORY_PATH
 from storage import load_json, update_json
 
 
-def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""):
+def is_graded(q: dict) -> bool:
+    """채점 대상: 정답이 있는 객관식 (정답 미제공 문항·주관식 제외)."""
+    return not q["is_subjective"] and bool(q["answers"])
+
+
+def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = "", title: str = ""):
     """CBT 제출 결과를 기록에 추가.
     questions: parse_cbt_questions() 반환값
     user_ans:  {qid: [int,...] or str}  (session_state[ans_key])
     full_text: 원본 마크다운 전문 (복습 재풀이용, v2.16)
     """
-    obj_qs = [q for q in questions if not q["is_subjective"]]
+    obj_qs = [q for q in questions if is_graded(q)]
     detail = {}
     wrong_ids = []
     for q in obj_qs:
         qid = q["id"]
         ua = user_ans.get(qid)
         ua_list = ua if isinstance(ua, list) else []
-        correct = bool(q["answers"]) and sorted(q["answers"]) == sorted(ua_list)
+        correct = sorted(q["answers"]) == sorted(ua_list)
         detail[qid] = correct
         if not correct:
             wrong_ids.append(qid)
@@ -44,6 +49,7 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
 
     record = {
         "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "title": title,
         "total": total,
         "correct": correct_cnt,
         "pct": pct,
