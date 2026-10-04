@@ -23,7 +23,7 @@ EXPL_EXAMPLES = [
     ("짧게", "해설은 핵심 근거만 두세 줄로 짧게 써줘"),
 ]
 
-_READ_MODELS = ["gpt-4o", "gpt-4.1", "gpt-5", "o4-mini", "gpt-4o-mini"]
+_READ_MODELS = ["gpt-5", "gpt-4o", "gpt-4.1", "o4-mini", "gpt-4o-mini"]
 _FILL = "🛠️ AI가 보완해서 풀기"
 _MARK = "🏷️ 그대로 두고 '(문항 복기 불완전)' 표시"
 _INCOMPLETE_HELP = {

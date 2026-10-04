@@ -77,7 +77,9 @@ def test_completion_kwargs_per_model():
     assert llm.completion_kwargs("gpt-4o", 16000, 0.4) == {
         "model": "gpt-4o", "max_tokens": 16000, "temperature": 0.4}
     assert llm.completion_kwargs("gpt-4-turbo", 16000, 0.4)["max_tokens"] == 4096
-    assert llm.completion_kwargs("o3", 16000, 0.4) == {"model": "o3", "max_completion_tokens": 16000}
+    assert llm.completion_kwargs("o3", 16000, 0.4) == {"model": "o3", "max_completion_tokens": 32000}
+    assert llm.completion_kwargs("gpt-5", 60000, 0.4)["max_completion_tokens"] == 64000
+    assert llm.MODELS[0] == "gpt-5"
     assert "temperature" not in llm.completion_kwargs("gpt-5", 16000, 0.4)
 
 
@@ -120,3 +122,17 @@ def _fake_stream_client(sent, topics_json=None):
             return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta, finish_reason="stop")])])
 
     return types.SimpleNamespace(chat=types.SimpleNamespace(completions=Completions))
+
+
+def test_login_locks_after_five_failures(monkeypatch):
+    save_json(USERS_PATH, {})
+    auth._fails.clear()
+    assert auth.signup("carol", "1234", "1234") is None
+    for i in range(auth.MAX_FAILS):
+        assert auth.fails_left("carol") == auth.MAX_FAILS - i
+        assert not auth.login("carol", "0000")
+    assert auth.locked_for("Carol") > 0
+    assert not auth.login("carol", "1234")          # 잠긴 동안엔 맞는 비밀번호도 거절
+    monkeypatch.setattr(auth.time, "time", lambda: 10**12)   # 잠금 시간이 지나면 다시 로그인
+    assert auth.locked_for("carol") == 0 and auth.login("carol", "1234")
+    assert auth.fails_left("carol") == auth.MAX_FAILS

@@ -39,7 +39,7 @@ _FONT_URLS = {
 
 
 def ensure_fonts() -> tuple[str, str]:
-    """PDF용 한글 폰트가 없으면 내려받고 (regular, bold) 경로를 돌려준다."""
+    """PDF용 한글 폰트 (regular, bold) 경로. 저장소에 fonts/로 들어 있고, 없을 때만 내려받는다."""
     FONTS_DIR.mkdir(exist_ok=True)
     for name, url in _FONT_URLS.items():
         path = FONTS_DIR / name

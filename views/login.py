@@ -20,8 +20,10 @@ def render() -> None:
                     st.session_state.authed = True
                     st.session_state.user = uid
                     st.rerun()
+                elif wait := auth.locked_for(uid):
+                    st.error(f"🔒 로그인 {auth.MAX_FAILS}회 실패로 잠겼습니다. {wait // 60 + 1}분 뒤에 다시 시도하세요.")
                 else:
-                    st.error("아이디 또는 비밀번호가 일치하지 않습니다.")
+                    st.error(f"아이디 또는 비밀번호가 일치하지 않습니다. (남은 시도 {auth.fails_left(uid)}회)")
         with tab_signup:
             with st.form("signup_form"):
                 new_uid = st.text_input("아이디 (영문/숫자/_ 3~20자)")

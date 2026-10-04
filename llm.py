@@ -8,7 +8,7 @@ from functools import lru_cache
 from config import get_secret
 
 # 화면에 보여줄 모델 목록 (첫 항목이 기본값)
-MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "o3", "gpt-5", "gpt-4-turbo"]
+MODELS = ["gpt-5", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "o3", "gpt-4-turbo"]
 
 # 모델별 1회 출력 토큰 한도
 _MAX_OUTPUT = {
@@ -19,7 +19,9 @@ _MAX_OUTPUT = {
     "gpt-4.1-mini": 32000,
 }
 _DEFAULT_MAX_OUTPUT = 16000
-_REASONING_MAX_OUTPUT = 32000
+_REASONING_MAX_OUTPUT = 64000
+# 추론 모델은 생각하는 토큰도 출력 한도에서 빠지므로, 요청한 답 길이에 이만큼 더 얹어 준다
+_REASONING_HEADROOM = 16000
 
 # 모델별 입력 토큰 안전 한도 (출력 여유분 확보)
 _INPUT_LIMIT = {
@@ -67,7 +69,8 @@ def input_limit(model: str) -> int:
 
 def completion_kwargs(model: str, max_tokens: int, temperature: float) -> dict:
     """chat.completions.create()에 넘길 모델별 파라미터."""
-    max_tokens = min(max_tokens, max_output_tokens(model))
     if is_reasoning_model(model):
-        return {"model": model, "max_completion_tokens": max_tokens}
+        return {"model": model,
+                "max_completion_tokens": min(max_tokens + _REASONING_HEADROOM, max_output_tokens(model))}
+    max_tokens = min(max_tokens, max_output_tokens(model))
     return {"model": model, "max_tokens": max_tokens, "temperature": temperature}
