@@ -9,6 +9,7 @@ Streamlit Cloud는 재시작하면 파일이 지워지므로 배포할 때는 DA
   put_image / get_image
   notebooks / save_notebook / delete_notebook          (학습 공간: 과목 노트북 + 단원)
   sets / get_set / save_set / delete_set               (노트북에 저장한 문항 세트)
+  put_share / get_share                                 (공유 코드 → 세트 복사본)
 모든 학습 공간 메서드는 uid로 범위를 제한한다 — 다른 사람 노트북·세트는 읽거나 지울 수 없다.
 """
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 from config import DATA_DIR, HISTORY_PATH, USERS_PATH, get_secret
 
 WORKSPACE_PATH = str(Path(DATA_DIR) / "workspace.json")
+SHARES_PATH = str(Path(DATA_DIR) / "shares.json")
 from storage import load_json, update_json
 
 _SCHEMA = """
@@ -52,6 +54,12 @@ CREATE TABLE IF NOT EXISTS sets (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sets_uid_idx ON sets (uid, notebook_id);
+CREATE TABLE IF NOT EXISTS shares (
+    code        TEXT PRIMARY KEY,
+    uid         TEXT NOT NULL,
+    data        JSONB NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS images (
     id          TEXT PRIMARY KEY,
     data        BYTEA NOT NULL,
@@ -92,8 +100,9 @@ class JsonStore:
     def add_attempt(self, uid: str, record: dict) -> None:
         update_json(HISTORY_PATH, lambda data: data.setdefault(uid, []).append(record))
 
-    def attempts(self, uid: str) -> list:
-        return load_json(HISTORY_PATH).get(uid, [])
+    def attempts(self, uid: str, with_text: bool = True) -> list:
+        recs = load_json(HISTORY_PATH).get(uid, [])
+        return recs if with_text else [{k: v for k, v in r.items() if k != "full_text"} for r in recs]
 
     def all_attempts(self) -> dict:
         return load_json(HISTORY_PATH)
@@ -150,6 +159,19 @@ class JsonStore:
     def delete_set(self, uid: str, set_id: str) -> None:
         self._ws_update(uid, lambda ws: ws["sets"].pop(set_id, None))
 
+    # 공유
+    def put_share(self, code: str, uid: str, data: dict) -> bool:
+        def _put(shares):
+            if code in shares:
+                return False
+            shares[code] = {"uid": uid, "data": data}
+            return True
+        return update_json(SHARES_PATH, _put)
+
+    def get_share(self, code: str) -> dict | None:
+        row = load_json(SHARES_PATH).get(code)
+        return row["data"] if row else None
+
 
 class PgStore:
     """Postgres 저장 (Neon). 작업마다 연결을 새로 연다 — Neon이 잠들었다 깨어나도 끊긴 연결을 붙잡지 않는다."""
@@ -194,8 +216,9 @@ class PgStore:
         from psycopg.types.json import Jsonb
         self._one("INSERT INTO attempts (uid, record) VALUES (%s, %s) RETURNING id", (uid, Jsonb(record)))
 
-    def attempts(self, uid: str) -> list:
-        return [r for (r,) in self._all("SELECT record FROM attempts WHERE uid = %s ORDER BY id", (uid,))]
+    def attempts(self, uid: str, with_text: bool = True) -> list:
+        col = "record" if with_text else "record - 'full_text'"
+        return [r for (r,) in self._all(f"SELECT {col} FROM attempts WHERE uid = %s ORDER BY id", (uid,))]
 
     def all_attempts(self) -> dict:
         out: dict = {}
@@ -251,6 +274,17 @@ class PgStore:
 
     def delete_set(self, uid: str, set_id: str) -> None:
         self._one("DELETE FROM sets WHERE uid = %s AND id = %s RETURNING id", (uid, set_id))
+
+    # 공유
+    def put_share(self, code: str, uid: str, data: dict) -> bool:
+        from psycopg.types.json import Jsonb
+        row = self._one("INSERT INTO shares (code, uid, data) VALUES (%s, %s, %s) "
+                        "ON CONFLICT (code) DO NOTHING RETURNING code", (code, uid, Jsonb(data)))
+        return row is not None
+
+    def get_share(self, code: str) -> dict | None:
+        row = self._one("SELECT data FROM shares WHERE code = %s", (code,))
+        return row[0] if row else None
 
 
 @lru_cache(maxsize=1)

@@ -239,6 +239,23 @@ table.grid td.empty { text-align: center; color: #888; padding: 18px; background
   .login-hd { font-size: 14px; }
 }
 
+/* ── CBT 번호판: 화면 폭과 관계없이 한 줄 10칸 (위의 '4칸 이상은 2칸씩' 규칙보다 우선) ── */
+[class*="_cbtnav"][class*="st-key-"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
+[class*="_cbtnav"][class*="st-key-"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"][data-testid="stColumn"] {
+  flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;
+}
+[class*="_cbtnav"] button { padding: 2px 0 !important; min-height: 34px; }
+[class*="_cbtnav"] button p { font-size: 13px; white-space: nowrap; }
+@media (max-width: 640px) {
+  [class*="_cbtnav"] button { min-height: 30px; }
+  [class*="_cbtnav"] button p { font-size: 11px; letter-spacing: -.03em; }
+}
+
+/* ── 홈 ── */
+.home-card { border: 1px solid var(--line); background: #fff; padding: 12px 16px; box-shadow: 2px 2px 0 #DCE6F2; }
+.home-num { font-size: 28px; font-weight: 800; color: var(--head-ink); line-height: 1.2; }
+.home-lbl { font-size: 12.5px; color: var(--ink-soft); font-weight: 700; }
+
 /* ── 문항 그림 (미리보기) ── */
 img.q-figure { max-width: 100%; max-height: 420px; border: 1px solid #BBB; margin: 6px 0; }
 details { margin: 4px 0; }
@@ -266,7 +283,6 @@ def hero(title: str, subtitle: str = "") -> None:
     """탭 띠 + 굵은 페이지 제목."""
     st.markdown(f"""
 <div class="tabstrip">
-  <div class="tab"><span class="chk">✔</span>홈<span class="x">×</span></div>
   <div class="tab on"><span class="chk">✔</span>{title}<span class="x">×</span></div>
 </div>
 <div class="page-title">{title}</div>

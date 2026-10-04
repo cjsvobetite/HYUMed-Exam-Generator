@@ -134,3 +134,40 @@ def loads(text: str) -> list[dict]:
         return list(json.loads(text or "{}").get("cards") or [])
     except ValueError:
         return []
+
+
+# ─── Anki 내보내기 ───
+# Anki → 파일 → 가져오기에서 그대로 읽히는 탭 구분 텍스트 (첫 줄의 #설정으로 구분자·HTML·태그 칸을 알려 준다)
+
+def _anki_field(text: str) -> str:
+    import html
+    return html.escape(str(text or "").strip()).replace("\t", " ").replace("\r", "").replace("\n", "<br>")
+
+
+def to_anki(rows: list[tuple[str, str]], tags: str = "") -> str:
+    tag = re.sub(r"\s+", "_", tags.strip())
+    lines = ["#separator:tab", "#html:true"] + (["#tags column:3"] if tag else [])
+    for front, back in rows:
+        if str(front).strip() and str(back).strip():
+            lines.append("\t".join([_anki_field(front), _anki_field(back)] + ([tag] if tag else [])))
+    return "\n".join(lines) + "\n"
+
+
+def cards_to_anki(cards: list[dict], tags: str = "") -> str:
+    return to_anki([(c["front"], c["back"]) for c in cards], tags)
+
+
+def questions_to_anki(markdown: str, tags: str = "") -> str:
+    """문항 세트 → 앞면: 발문 + 선지, 뒷면: 정답 + 해설."""
+    from cbt import parse_cbt_questions
+
+    rows = []
+    for q in parse_cbt_questions(markdown):
+        front = q["stem"] + "".join(f"\n({i}) {c}" for i, c in enumerate(q["choices"], 1))
+        if q["choices"] and q["answers"]:
+            answer = "정답: " + ", ".join(f"({i + 1}) {q['choices'][i]}" for i in q["answers"] if i < len(q["choices"]))
+            back = answer + (f"\n\n{q['explanation']}" if q["explanation"] else "")
+        else:
+            back = q["explanation"] or q.get("answer_text", "")
+        rows.append((front, back or "(정답 없음)"))
+    return to_anki(rows, tags)
