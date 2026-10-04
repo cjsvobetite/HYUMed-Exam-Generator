@@ -116,6 +116,6 @@ def test_material_only_uses_default_request(monkeypatch):
     assert "강의 자료 (1/1)" in seen["user"]
 
 
-def test_card_examples_include_medical_english():
+def test_card_examples_include_medical_terms():
     texts = [t for _, t in flashcards.CARD_EXAMPLES]
-    assert flashcards.EXAMPLE_REQUEST in texts and "의학 영어" in flashcards.EXAMPLE_REQUEST
+    assert flashcards.EXAMPLE_REQUEST in texts and "의학용어" in flashcards.EXAMPLE_REQUEST

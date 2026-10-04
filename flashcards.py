@@ -15,10 +15,10 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 FLASH_MODEL = "gpt-4o-mini"
-EXAMPLE_REQUEST = "이 강의록에 나온 의학 영어 용어를 모두 빠짐없이 물어보는 카드로 만들어줘 (앞면: 영어 용어, 뒷면: 한글 뜻)"
+EXAMPLE_REQUEST = "이 강의록에 나온 의학용어를 모두 빠짐없이 물어보는 카드로 만들어줘 (앞면: 의학용어, 뒷면: 뜻)"
 # (버튼 이름, 요청 문구) — 화면에서 예시 버튼으로 보여 준다
 CARD_EXAMPLES = [
-    ("의학 영어 전부", EXAMPLE_REQUEST),
+    ("의학용어 전부", EXAMPLE_REQUEST),
     ("강조한 핵심만", "교수님이 강조하거나 반복한 핵심 개념만 골라 카드로 만들어줘"),
     ("질환별 정리", "질환마다 원인·증상·진단·치료를 각각 묻는 카드로 만들어줘"),
     ("기출 개념 전부", "기출문제에 나온 개념을 하나도 빠짐없이 카드로 만들어줘"),
