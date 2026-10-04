@@ -46,9 +46,10 @@ OCR_MODE_OPTIONS = {
 VIEW_PREVIEW = "📖 미리보기"
 VIEW_CBT_PER_Q = "🎯 CBT · 문항별 해설"
 VIEW_CBT_SUBMIT = "📝 CBT · 전체 제출 후 해설"
-VIEW_MODES = [VIEW_PREVIEW, VIEW_CBT_PER_Q, VIEW_CBT_SUBMIT]
-CBT_MODES = [VIEW_CBT_PER_Q, VIEW_CBT_SUBMIT]
+VIEW_CBT_EXAM = "⏱️ 시험 모드 (제한 시간)"
+VIEW_MODES = [VIEW_PREVIEW, VIEW_CBT_PER_Q, VIEW_CBT_SUBMIT, VIEW_CBT_EXAM]
+CBT_MODES = [VIEW_CBT_PER_Q, VIEW_CBT_SUBMIT, VIEW_CBT_EXAM]
 
 
 def cbt_mode_value(label: str) -> str:
-    return "per_q" if label == VIEW_CBT_PER_Q else "submit_all"
+    return {VIEW_CBT_PER_Q: "per_q", VIEW_CBT_EXAM: "exam"}.get(label, "submit_all")

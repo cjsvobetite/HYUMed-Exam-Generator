@@ -225,25 +225,32 @@ def _notebook(uid: str, nb: dict) -> None:
         st.rerun()
     status = ws.question_status(uid)
     s = ws.notebook_stats(uid, nb, status)
+    due_pool, _ = ws.due_cards(uid, nb)
+    nb_sets = {x["id"] for x in get_store().sets(uid, nb["id"]) if x.get("kind") != ws.FLASH}
+    due_q = sum(1 for (sid, _), q in status.items() if sid in nb_sets and q.is_due())
     st.markdown(f'<div class="page-title">{nb["emoji"]} {nb["name"]}</div>', unsafe_allow_html=True)
     m = st.columns(5)
-    m[0].metric("문항 세트", f"{s['sets']}개")
-    m[1].metric("문항", f"{s['questions']}개")
+    m[0].metric("문항", f"{s['questions']}개", help=f"문항 세트 {s['sets']}개")
+    m[1].metric("📅 오늘 복습 (문항·카드)", f"{due_q} · {len(due_pool)}", help="간격 반복으로 오늘 다시 볼 차례인 문항 수 · 카드 수")
     m[2].metric("틀린 문항", f"{s['wrong']}개")
     m[3].metric("🚩 표시한 문항", f"{s['flagged']}개")
     m[4].metric("🃏 플래시카드", f"{s['cards']}장")
 
-    t_review, t_flash, t_sets, t_units, t_cfg = st.tabs(
-        ["📝 복습 만들기", "🃏 플래시카드", "📂 세트·덱", "🗂️ 단원", "⚙️ 설정"])
-    with t_review:
+    tabs = st.tabs(["📝 복습 만들기", "🃏 플래시카드", "📂 세트·덱", "🔍 검색", "📊 통계", "🗂️ 단원", "⚙️ 설정"])
+    with tabs[0]:
         _review(uid, nb, status)
-    with t_flash:
+    with tabs[1]:
         _flash(uid, nb)
-    with t_sets:
+    with tabs[2]:
         _sets(uid, nb, status)
-    with t_units:
+    with tabs[3]:
+        _search(uid, nb)
+    with tabs[4]:
+        from views.home import stats_panel
+        stats_panel(uid, [], status, nb=nb)
+    with tabs[5]:
         _units(uid, nb)
-    with t_cfg:
+    with tabs[6]:
         _settings(uid, nb)
 
 
@@ -251,34 +258,43 @@ def _unit_rows(uid, nb, status):
     all_sets = get_store().sets(uid, nb["id"])
     sets = [x for x in all_sets if x.get("kind") != ws.FLASH]
     decks = [x for x in all_sets if x.get("kind") == ws.FLASH]
+    by_id = {x["id"]: x for x in sets}
+    today = ws.srs.today()
+    agg: dict = {}                    # unit_id → [문항, 틀림, 🚩, 푼 문항, 오늘 복습]
+    for x in sets:
+        for unit_id, n in ws.unit_question_counts(x).items():
+            agg.setdefault(unit_id, [0, 0, 0, 0, 0])[0] += n
+    for (sid, qid), q in status.items():
+        x = by_id.get(sid)
+        if not x:
+            continue
+        a = agg.setdefault(ws.question_unit(x, qid), [0, 0, 0, 0, 0])
+        a[1] += q.last_correct is False
+        a[2] += q.flagged
+        a[3] += bool(q.tries)
+        a[4] += q.is_due(today)
     rows = []
     for u in nb.get("units", []) + [{"id": None, "name": _NO_UNIT}]:
-        mine = [x for x in sets if x.get("unit_id") == u["id"]]
+        a = agg.get(u["id"], [0, 0, 0, 0, 0])
         my_cards = sum(x.get("n_questions", 0) for x in decks if x.get("unit_id") == u["id"])
-        if u["id"] is None and not mine and not my_cards:
+        if u["id"] is None and not a[0] and not my_cards:
             continue
-        ids = {x["id"] for x in mine}
-        rows.append({
-            "단원": u["name"], "세트": len(mine), "문항": sum(x.get("n_questions", 0) for x in mine),
-            "틀린 문항": sum(1 for (sid, _), q in status.items() if sid in ids and q.last_correct is False),
-            "🚩": sum(1 for (sid, _), q in status.items() if sid in ids and q.flagged),
-            "안 푼 문항": sum(x.get("n_questions", 0) for x in mine)
-                       - sum(1 for (sid, _), q in status.items() if sid in ids and q.tries),
-            "🃏 카드": my_cards,
-        })
+        rows.append({"단원": u["name"], "문항": a[0], "📅 오늘": a[4], "틀린 문항": a[1], "🚩": a[2],
+                     "안 푼 문항": max(0, a[0] - a[3]), "🃏 카드": my_cards})
     return rows
 
 
 def _review(uid, nb, status):
     ui.step(1, "범위", "단원별 현황을 보고 복습할 단원을 고르세요.")
-    ui.table(_unit_rows(uid, nb, status), columns=["단원", "세트", "문항", "틀린 문항", "🚩", "안 푼 문항", "🃏 카드"],
+    ui.table(_unit_rows(uid, nb, status), columns=["단원", "문항", "📅 오늘", "틀린 문항", "🚩", "안 푼 문항", "🃏 카드"],
              empty="아직 저장한 세트가 없습니다.")
+    st.caption("세트를 '📂 세트·덱 → 🤖 문항별 단원 분류'로 나눠 두면 문항 하나하나가 맞는 단원으로 들어갑니다.")
     unit_opts = {u["name"]: u["id"] for u in nb.get("units", [])}
     unit_opts[_NO_UNIT] = None
     chosen = st.multiselect("단원", list(unit_opts), default=list(unit_opts), key=f"rv_units_{nb['id']}")
 
     ui.step(2, "출처", "여러 개를 고르면 하나라도 해당하는 문항을 모읍니다.")
-    sources = st.multiselect("문항 출처", list(ws.SOURCE_LABEL), default=[ws.SRC_WRONG, ws.SRC_FLAGGED],
+    sources = st.multiselect("문항 출처", list(ws.SOURCE_LABEL), default=[ws.SRC_DUE, ws.SRC_WRONG, ws.SRC_FLAGGED],
                              format_func=ws.SOURCE_LABEL.get, key=f"rv_src_{nb['id']}")
     c1, c2, c3 = st.columns([1, 1, 2])
     limit = c1.number_input("최대 문항 수 (0 = 전부)", 0, 200, 20, key=f"rv_n_{nb['id']}")
@@ -322,6 +338,7 @@ def _sets(uid, nb, status):
                      "학습함": done, "틀림·모름": wrong, "저장일": x.get("created_at", "")[:10]})
     ui.table(rows, columns=["제목", "종류", "단원", "문항·카드", "학습함", "틀림·모름", "저장일"], height=360,
              center=("종류", "단원", "저장일"), empty="저장한 세트가 없습니다.")
+    _import_share(uid, nb)
     if not sets:
         return
     by_label = {f"{x['title']} ({x.get('created_at', '')[:10]})": x for x in reversed(sets)}
@@ -343,6 +360,8 @@ def _sets(uid, nb, status):
         st.session_state.pop("ws_solve", None)
         st.rerun()
 
+    _set_tools(uid, nb, pick)
+
     solve = st.session_state.get("ws_solve")
     if solve:
         full = get_store().get_set(uid, solve["id"])
@@ -357,6 +376,181 @@ def _sets(uid, nb, status):
                        title=full["title"], set_id=full["id"])
 
 
+def _set_tools(uid, nb, pick):
+    """고른 세트: ✏️ 편집 · 📤 Anki 내보내기 · 🔗 공유 · 🤖 문항별 단원 분류."""
+    import flashcards
+    is_deck = pick.get("kind") == ws.FLASH
+    full = get_store().get_set(uid, pick["id"])
+    if not full:
+        return
+    box = st.expander("🛠️ 이 세트 고치기 · Anki 내보내기 · 공유 · 문항별 단원 분류",
+                      expanded=st.session_state.get(f"tools_open_{pick['id']}", False))
+    t_edit, t_anki, t_share, t_cls = box.tabs(["✏️ 편집", "📤 Anki 내보내기", "🔗 공유", "🤖 문항별 단원 분류"])
+    with t_edit:
+        if is_deck:
+            _deck_editor(uid, full)
+        else:
+            _question_editor(uid, full)
+    with t_anki:
+        st.caption("Anki → 파일 → 가져오기에서 이 파일을 고르면 앞면/뒷면이 그대로 들어갑니다 (탭 구분, HTML).")
+        tags = st.text_input("태그 (선택)", value=nb["name"], key=f"anki_tag_{pick['id']}")
+        data = (flashcards.cards_to_anki(flashcards.loads(full["markdown"]), tags) if is_deck
+                else flashcards.questions_to_anki(full["markdown"], tags))
+        st.download_button("📤 Anki용 파일 받기 (.txt)", data=data.encode("utf-8"), mime="text/plain",
+                           file_name=f"{full['title'][:40] or 'anki'}.txt", key=f"anki_dl_{pick['id']}",
+                           use_container_width=True)
+    with t_share:
+        if not ws.can_share(full):
+            st.info("직접 만든 AI 생성 문항과 플래시카드만 공유할 수 있습니다 "
+                    "(기출·문제지 세트와 다른 사람에게 받은 세트는 공유 안 됨).")
+        else:
+            st.caption("공유 코드를 받은 사람은 '📥 공유 코드로 가져오기'로 자기 노트북에 복사본을 넣습니다. "
+                       "내 학습 기록은 함께 가지 않고, 코드를 만든 뒤에 고친 내용은 반영되지 않습니다.")
+            code_key = f"share_code_{pick['id']}"
+            if st.button("🔗 공유 코드 만들기", key=f"share_btn_{pick['id']}", type="primary"):
+                st.session_state[code_key] = ws.share_set(uid, pick["id"])
+            if st.session_state.get(code_key):
+                st.code(st.session_state[code_key], language=None)
+    with t_cls:
+        if is_deck:
+            st.caption("플래시카드 덱은 덱 단위로만 단원을 정합니다 (위의 '단원 옮기기').")
+        elif not nb.get("units") and not full.get("q_units"):
+            st.caption("단원이 없어도 됩니다 — AI가 문항을 보고 단원을 새로 만들어 나눕니다.")
+        if not is_deck:
+            q_units = full.get("q_units") or {}
+            if q_units:
+                counts = {}
+                for unit_id in q_units.values():
+                    counts[ws.unit_name(nb, unit_id)] = counts.get(ws.unit_name(nb, unit_id), 0) + 1
+                st.markdown("현재 분류: " + " · ".join(f"{k} {v}문항" for k, v in counts.items()))
+            st.caption("문항 하나하나를 노트북의 단원에 나눠 넣습니다. 단원별 복습·통계가 문항 단위로 계산됩니다.")
+            if st.button("🤖 문항별 단원 분류" if not q_units else "🔁 다시 분류", key=f"cls_{pick['id']}"):
+                with st.spinner("문항을 단원별로 나누는 중..."):
+                    try:
+                        ws.classify_questions(uid, nb, pick["id"])
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"분류 실패: {e}")
+            if q_units and st.button("분류 지우기 (세트 단원으로 되돌리기)", key=f"cls_clear_{pick['id']}"):
+                full["q_units"] = {}
+                get_store().save_set(uid, full)
+                st.rerun()
+
+
+def _question_editor(uid, full):
+    from cbt import parse_cbt_questions
+    qs = parse_cbt_questions(full["markdown"])
+    if not qs:
+        st.caption("문항이 없습니다.")
+        return
+    labels = {f"{q['id']} — {q['stem'].splitlines()[0][:60]}": q["id"] for q in qs}
+    qid = labels[st.selectbox("고칠 문항", list(labels), key=f"edit_q_{full['id']}")]
+    block = ws.question_block(full["markdown"], qid)
+    st.caption("발문·선지·정답(✅ **정답: ①**)·해설을 바로 고칠 수 있습니다. <details>·<summary> 줄과 문항 번호는 그대로 두세요.")
+    key = f"edit_txt_{full['id']}_{qid}"
+    text = st.text_area("문항 원문", value=block, height=320, key=key)
+    preview = parse_cbt_questions(text)
+    if len(preview) == 1:
+        p = preview[0]
+        ans = ", ".join(f"({i + 1})" for i in p["answers"]) or (p.get("answer_text") or "없음")
+        st.caption(f"미리보기: 선지 {len(p['choices'])}개 · 정답 {ans}")
+    c1, c2, c3 = st.columns([1, 1, 1])
+    if c1.button("💾 저장", key=f"edit_save_{full['id']}_{qid}", type="primary", use_container_width=True,
+                 disabled=text.strip() == block.strip()):
+        err = ws.update_question(uid, full["id"], qid, text)
+        st.session_state[f"tools_open_{full['id']}"] = True
+        if err:
+            st.error(err)
+        else:
+            st.session_state.pop(key, None)
+            st.toast(f"✏️ {qid}을(를) 고쳤습니다.")
+            st.rerun()
+    ok = c3.checkbox("문항 삭제 확인", key=f"edit_delok_{full['id']}_{qid}")
+    if c2.button("🗑 이 문항 삭제", key=f"edit_del_{full['id']}_{qid}", disabled=not ok, use_container_width=True):
+        ws.update_question(uid, full["id"], qid, None)
+        st.session_state[f"tools_open_{full['id']}"] = True
+        st.rerun()
+
+
+def _deck_editor(uid, full):
+    import flashcards
+    cards = flashcards.loads(full["markdown"])
+    st.caption("칸을 눌러 바로 고치고, 맨 아래 줄에서 카드를 추가하거나 줄을 골라 삭제한 뒤 저장하세요. "
+               "고친 카드도 학습 기록(간격 반복 단계)은 그대로 남습니다.")
+    ver = st.session_state.get(f"deck_ver_{full['id']}", 0)
+    import pandas as pd
+    edited = st.data_editor(
+        pd.DataFrame([{"id": c["id"], "front": c["front"], "back": c["back"]} for c in cards],
+                     columns=["id", "front", "back"]),
+        column_order=["front", "back"], num_rows="dynamic", use_container_width=True, hide_index=True,
+        column_config={"front": st.column_config.TextColumn("앞면", width="medium"),
+                       "back": st.column_config.TextColumn("뒷면", width="large")},
+        key=f"deck_edit_{full['id']}_{ver}")
+    if st.button("💾 카드 저장", key=f"deck_save_{full['id']}", type="primary"):
+        n = ws.update_deck_cards(uid, full["id"], edited.to_dict("records"))
+        st.session_state[f"tools_open_{full['id']}"] = True
+        st.session_state[f"deck_ver_{full['id']}"] = ver + 1
+        st.toast(f"🃏 {n}장으로 저장했습니다.")
+        st.rerun()
+
+
+def _import_share(uid, nb):
+    with st.expander("📥 공유 코드로 가져오기"):
+        c1, c2 = st.columns([1, 1])
+        code = c1.text_input("공유 코드 (8자리)", key=f"imp_code_{nb['id']}", placeholder="예: K7QX2MPA")
+        unit_opts = {u["name"]: u["id"] for u in nb.get("units", [])}
+        unit_opts[_NO_UNIT] = None
+        unit = c2.selectbox("넣을 단원", list(unit_opts), key=f"imp_unit_{nb['id']}")
+        data = ws.get_share(code) if code.strip() else None
+        if code.strip() and not data:
+            st.caption("코드를 찾을 수 없습니다.")
+        if data:
+            st.markdown(f"**{data['title']}** · {ws.KIND_LABEL.get(data['kind'], data['kind'])} · "
+                        f"{data.get('n_questions', 0)}{'장' if data['kind'] == ws.FLASH else '문항'} · "
+                        f"만든 사람 {data.get('owner', '')}")
+            if st.button("📥 이 노트북에 가져오기", key=f"imp_go_{nb['id']}", type="primary"):
+                ws.import_share(uid, code, nb["id"], unit_opts[unit])
+                st.toast("📥 가져왔습니다.")
+                st.rerun()
+
+
+# ─── 🔍 검색 ───
+
+def _search(uid, nb):
+    q = st.text_input("검색어", key=f"srch_{nb['id']}", placeholder="예: 신경관 / troponin / 심근경색 진단",
+                      help="발문·선지·해설과 플래시카드 앞뒷면에서 찾습니다. 낱말을 여러 개 쓰면 모두 들어 있는 것만.")
+    if not q.strip():
+        return
+    questions, cards = ws.search(uid, nb, q)
+    st.markdown(f"**📝 문항 {len(questions)}개 · 🃏 카드 {len(cards)}장**")
+    if questions:
+        ui.table([{"세트": h["title"], "번호": h["qid"], "단원": ws.unit_name(nb, h["unit_id"]),
+                   "발문": h["stem"].splitlines()[0][:90]} for h in questions],
+                 columns=["세트", "번호", "단원", "발문"], height=min(360, 60 + 34 * len(questions)))
+        mode = st.radio("풀이 방식", CBT_MODES, horizontal=True, key=f"srch_mode_{nb['id']}")
+        if st.button(f"📝 찾은 문항 {len(questions)}개로 복습", type="primary", key=f"srch_go_{nb['id']}"):
+            md, mapping, _ = ws.build_review(uid, nb, None, [], 0, shuffle=False,
+                                             only={(h["set_id"], h["qid"]) for h in questions})
+            st.session_state[f"srch_rv_{nb['id']}"] = {"md": md, "map": mapping, "q": q,
+                                                       "ts": datetime.now().strftime("%Y%m%d%H%M%S")}
+    if cards:
+        ui.table([{"덱": t, "앞면": c["front"], "뒷면": c["back"]} for _, t, c in cards],
+                 columns=["덱", "앞면", "뒷면"], height=min(360, 60 + 34 * len(cards)))
+        if st.button(f"🃏 찾은 카드 {len(cards)}장 학습", key=f"srch_fc_{nb['id']}"):
+            st.session_state[f"srch_fc_{nb['id']}"] = {"pool": [(d, c) for d, _, c in cards],
+                                                       "ts": datetime.now().strftime("%H%M%S%f")}
+    rv = st.session_state.get(f"srch_rv_{nb['id']}")
+    if rv:
+        st.divider()
+        render_cbt(parse_cbt_questions(rv["md"]), mode=cbt_mode_value(st.session_state.get(f"srch_mode_{nb['id']}")),
+                   session_prefix=f"srch_{rv['ts']}", user=uid, source_text=rv["md"],
+                   title=f"검색 복습: {rv['q']}", sources=rv["map"])
+    run = st.session_state.get(f"srch_fc_{nb['id']}")
+    if run:
+        st.divider()
+        _flash_session(uid, nb, f"srchfc_{run['ts']}", run["pool"])
+
+
 # ─── 🃏 플래시카드 학습 ───
 
 def _flash(uid, nb):
@@ -368,12 +562,15 @@ def _flash(uid, nb):
     labels = {f"{d['title']} · {ws.unit_name(nb, d.get('unit_id'))} ({d.get('n_questions', 0)}장)": d for d in reversed(decks)}
     chosen = st.multiselect("덱", list(labels), default=list(labels), key=f"fc_decks_{nb['id']}")
     c1, c2 = st.columns([2, 1])
-    which = c1.radio("카드", ["전체", "❌ 모르는 카드만", "🆕 안 본 카드만"], horizontal=True, key=f"fc_which_{nb['id']}")
+    which = c1.radio("카드", ["📅 오늘 복습할 카드", "전체", "❌ 모르는 카드만", "🆕 안 본 카드만"], horizontal=True,
+                     key=f"fc_which_{nb['id']}", help="📅 오늘 복습할 카드: 간격 반복으로 다시 볼 차례가 된 카드")
     shuffle = c2.checkbox("순서 섞기", value=True, key=f"fc_shuf_{nb['id']}")
     if st.button("🃏 학습 시작", type="primary", use_container_width=True, disabled=not chosen, key=f"fc_go_{nb['id']}"):
         pool = []
         for lab in chosen:
             for c in ws.deck_cards(uid, labels[lab]["id"]):
+                if which.startswith("📅") and not ws.srs.card_due(c):
+                    continue
                 if which.startswith("❌") and c.get("known") is not False:
                     continue
                 if which.startswith("🆕") and c.get("reviews"):

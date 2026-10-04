@@ -1,5 +1,9 @@
 """CBT mode — 문항별 1개씩 표시 + 상단 번호 네비게이션 + 주관식 직접 입력.
 
+시험 모드 (mode="exam"):
+- 제한 시간을 정하고 시작 → 남은 시간 표시, 시간이 다 되면 자동 제출되고 답을 더 고칠 수 없다.
+- 해설은 제출 후에만 보이고, 풀이 기록은 다른 모드와 똑같이 남는다.
+
 v2.14 신규:
 - 제출 완료 시 history.save_attempt() 호출 → 유저별 풀이 기록 저장 (문항별 모드는 전 문항 답변 후).
 - _show_score()에 '틀린 문항만 다시 풀기' 버튼 추가 → 오답만 모아 render_cbt() 재실행.
@@ -20,8 +24,10 @@ v2.11 성능 최적화:
 - st.rerun() 제거 → fragment 내부는 state 변경 후 자동 재렌더되므로 불필요.
 """
 import re
+import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from history import get_wrong_questions, is_graded, save_attempt
 from images import IMG_RE, image_path
@@ -354,6 +360,63 @@ def _show_score(questions, user_ans, prefix, user="", source_text="", save=True,
         st.rerun()
 
 
+def _exam_start(prefix: str, total: int) -> bool:
+    """시험 모드 시작 전 화면. 시작했으면 True."""
+    if st.session_state.get(f"{prefix}_deadline"):
+        return True
+    with st.container(border=True):
+        st.markdown(f"**⏱️ 시험 모드** · {total}문항 — 시간이 끝나면 자동으로 제출되고, 해설은 제출 후에 보입니다.")
+        c1, c2 = st.columns([1, 1])
+        minutes = c1.number_input("제한 시간 (분)", 1, 300, max(1, total), key=f"{prefix}_minutes",
+                                  help="기본값: 문항당 1분")
+
+        def _start():
+            st.session_state[f"{prefix}_deadline"] = time.time() + int(minutes) * 60
+            st.session_state[f"{prefix}_limit"] = int(minutes) * 60
+
+        c2.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+        c2.button("▶ 시험 시작", key=f"{prefix}_start", type="primary", on_click=_start, use_container_width=True)
+    return False
+
+
+def _countdown(seconds: int) -> None:
+    """남은 시간을 1초마다 줄여 보여 준다 (화면 표시만 — 시간 종료 판정은 서버가 한다)."""
+    components.html(f"""
+<div id="t" style="font:700 15px/1.4 'Nanum Gothic','Malgun Gothic',sans-serif;color:#15428B;padding:6px 10px;
+ border:1px solid #9FB4D3;background:#EEF3FA;display:inline-block">⏱️ 남은 시간 <span id="v"></span></div>
+<script>
+let left = {max(0, int(seconds))};
+const v = document.getElementById('v'), box = document.getElementById('t');
+function draw() {{
+  const m = Math.floor(left / 60), s = left % 60;
+  v.textContent = m + ':' + String(s).padStart(2, '0');
+  if (left <= 60) {{ box.style.color = '#C0392B'; box.style.borderColor = '#E3A39B'; box.style.background = '#FCEFEE'; }}
+}}
+draw();
+setInterval(() => {{ if (left > 0) {{ left -= 1; draw(); }} }}, 1000);
+</script>""", height=44)
+
+
+@st.fragment(run_every=5)
+def _exam_clock(prefix: str, total: int) -> None:
+    """5초마다 서버에서 남은 시간을 확인하고, 시간이 다 되면 자동 제출한다."""
+    shown_key = f"{prefix}_shown"
+    shown = st.session_state.get(shown_key, set())
+    if len(shown) >= total:
+        used = st.session_state.get(f"{prefix}_used")
+        if used is not None:
+            st.caption(f"⏱️ 제출 완료 — 걸린 시간 {used // 60}분 {used % 60}초"
+                       + (" (시간 종료로 자동 제출)" if st.session_state.get(f"{prefix}_timeup") else ""))
+        return
+    left = st.session_state[f"{prefix}_deadline"] - time.time()
+    if left <= 0:
+        st.session_state[shown_key] = set(range(total))
+        st.session_state[f"{prefix}_timeup"] = True
+        st.session_state[f"{prefix}_used"] = st.session_state.get(f"{prefix}_limit", 0)
+        st.rerun()                 # 시험 화면 전체를 다시 그려 제출 상태로
+    _countdown(int(left))
+
+
 @st.fragment
 def render_cbt(questions, mode, session_prefix, user="", source_text=None, title="",
                set_id=None, sources=None):
@@ -374,6 +437,13 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         return
 
     total = len(questions)
+    exam = mode == "exam"
+    if exam:
+        session_prefix = f"{session_prefix}_exam"    # 다른 모드에서 고른 답과 섞이지 않게
+        mode = "submit_all"
+        if not _exam_start(session_prefix, total):
+            return
+        _exam_clock(session_prefix, total)
     cur_key   = f"{session_prefix}_cur"
     ans_key   = f"{session_prefix}_ans"
     shown_key = f"{session_prefix}_shown"
@@ -389,6 +459,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     user_ans = st.session_state[ans_key]
     shown    = st.session_state[shown_key]
     flags    = st.session_state[flags_key]
+    locked   = exam and len(shown) >= total      # 시험 모드는 제출(또는 시간 종료) 뒤 답을 바꿀 수 없다
 
     answered_count = sum(1 for v in user_ans.values() if v not in (None, [], ""))
     st.markdown(f"**총 {total}문항** · 답변: {answered_count}/{total}")
@@ -397,20 +468,21 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     # ── 🚩 표시한 문항 (상단) — 눌러서 바로 이동 ──
     if flags:
         marked = sorted(flags)
-        mcols = st.columns([1.4] + [0.6] * min(len(marked), 12) + [max(0.1, 12 - len(marked)) * 0.6])
-        mcols[0].markdown(f"🚩 **표시한 문항 {len(marked)}개**")
-        for j, idx in enumerate(marked[:12], 1):
+        st.markdown(f"🚩 **표시한 문항 {len(marked)}개** — 눌러서 이동")
+        mcols = st.container(key=f"{session_prefix}_mark_cbtnav").columns(10)
+        for j, idx in enumerate(marked[:10]):
             mcols[j].button(f"{idx+1}", key=f"{session_prefix}_mk_{idx}", on_click=_set_cur,
                             args=(session_prefix, idx), use_container_width=True)
-        if len(marked) > 12:
-            mcols[-1].caption(f"외 {len(marked) - 12}개 (번호 버튼의 🚩)")
+        if len(marked) > 10:
+            st.caption(f"외 {len(marked) - 10}개 (번호 버튼의 🚩)")
 
     # ── 상단 번호 버튼 네비게이션 (10개씩 한 줄) ──
     # 미답=N, 답변=✓N, 표시=🚩N, 현재=primary
     COLS_PER_ROW = 10
+    nav_box = st.container(key=f"{session_prefix}_cbtnav")   # 좁은 화면에서도 한 줄 10칸을 유지 (ui.py CSS)
     for row_start in range(0, total, COLS_PER_ROW):
         row_qs = list(range(row_start, min(row_start + COLS_PER_ROW, total)))
-        cols = st.columns(len(row_qs))
+        cols = nav_box.columns(COLS_PER_ROW)
         for ci, idx in enumerate(row_qs):
             q_nav = questions[idx]
             ua_nav = user_ans.get(q_nav['id'])
@@ -482,7 +554,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
             "답 입력", value=prev_text,
             key=f"{session_prefix}_subj_{qid}",
             height=120, placeholder="답을 직접 입력하세요...",
-            on_change=_save_subj,
+            on_change=_save_subj, disabled=locked,
         )
 
         if q['explanation']:
@@ -504,7 +576,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
         excluded = _excluded(session_prefix, qid)
         for ci, choice in enumerate(q['choices']):
             if st.checkbox(_choice_label(ci, choice, ci in excluded), value=(ci in sel),
-                           key=f"{session_prefix}_cb_{qid}_{ci}"):
+                           key=f"{session_prefix}_cb_{qid}_{ci}", disabled=locked):
                 new_sel.append(ci)
         if not answer_revealed:
             _exclude_control(session_prefix, qid, len(q['choices']))
@@ -526,7 +598,7 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
             format_func=lambda x: labels[x],
             index=prev_idx,
             key=f"{session_prefix}_r_{qid}",
-            label_visibility="collapsed",
+            label_visibility="collapsed", disabled=locked,
         )
         new_ua = [sel_r] if sel_r is not None else []
         user_ans[qid] = new_ua
@@ -556,12 +628,16 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
             st.button("다음 →", key=f"{session_prefix}_next",
                       on_click=_go_next, type="primary",
                       use_container_width=True)
-        elif mode == 'submit_all':
+        elif mode == 'submit_all' and not locked:
             unanswered = total - answered_count
             def _submit_all():
                 for idx2 in range(total):
                     shown.add(idx2)
                 st.session_state[shown_key] = shown
+                if exam:
+                    limit = st.session_state.get(f"{session_prefix}_limit", 0)
+                    left = st.session_state[f"{session_prefix}_deadline"] - time.time()
+                    st.session_state[f"{session_prefix}_used"] = int(min(limit, max(0, limit - left)))
             st.button("📝 최종 제출", type="primary",
                       key=f"{session_prefix}_submit_btn",
                       on_click=_submit_all,
@@ -583,7 +659,10 @@ def render_cbt(questions, mode, session_prefix, user="", source_text=None, title
     # ── 점수 패널 ──
     if mode == 'submit_all' and len(shown) >= total:
         st.markdown("---")
-        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text, title=title,
+        if st.session_state.get(f"{session_prefix}_timeup"):
+            st.warning("⏱️ 시간이 끝나 자동으로 제출했습니다. 답하지 않은 문항은 오답으로 처리됩니다.")
+        _show_score(questions, user_ans, session_prefix, user=user, source_text=source_text,
+                    title=f"{title} (시험 모드)" if exam and title else title,
                     set_id=set_id, sources=sources, flagged=[questions[i]['id'] for i in flags])
     elif mode == 'per_q' and shown:
         done = len(shown) >= total          # 모든 문항의 정답을 확인해야 기록 저장

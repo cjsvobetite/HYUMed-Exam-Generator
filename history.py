@@ -30,7 +30,8 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
     """CBT 제출 결과를 기록에 추가.
     questions: parse_cbt_questions() 반환값
     user_ans:  {qid: [int,...] or str}  (session_state[ans_key])
-    full_text: 원본 마크다운 전문 (복습 재풀이용, v2.16)
+    full_text: 원본 마크다운 전문 (복습 재풀이용). 학습 공간 세트·복습 세트를 푼 기록에는 남기지 않는다 —
+               세트에서 다시 읽을 수 있으므로 (workspace.attempt_markdown) DB 용량을 아낀다.
     set_id:    학습 공간에 저장된 세트를 푼 경우 그 세트 id
     sources:   복습 세트를 푼 경우 {복습 문항 번호: [set_id, 원래 문항 번호]}
     flagged:   🚩 표시한 문항 번호 목록 (나머지 문항은 표시 해제로 기록)
@@ -58,8 +59,9 @@ def save_attempt(user: str, questions: list, user_ans: dict, full_text: str = ""
         "pct": pct,
         "wrong_ids": wrong_ids,
         "detail": detail,
-        "full_text": full_text,   # v2.16: 재풀이용 원본 마크다운 저장
     }
+    if full_text and not (set_id or sources):
+        record["full_text"] = full_text
     if set_id:
         record["set_id"] = set_id
     if sources:

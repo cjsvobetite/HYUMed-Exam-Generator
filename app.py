@@ -20,7 +20,7 @@ if getattr(sys, "_saluterra_code_sig", None) != _code_sig:
 import ui
 from config import ADMIN_ID
 from constants import BRAND
-from views import admin, exam_cbt, generate, history_view, login, workspace
+from views import admin, exam_cbt, generate, home, login, workspace
 
 st.set_page_config(page_title=f"{BRAND} CBT", page_icon="🐈", layout="wide")
 ui.inject_css()
@@ -35,28 +35,28 @@ if not st.session_state.authed:
     st.stop()
 
 user = st.session_state.user
-p_generate = st.Page(generate.render, title="AI 문항 생성", url_path="generate", default=True)
+p_home = st.Page(home.render, title="홈", url_path="home", default=True)
+p_generate = st.Page(generate.render, title="AI 문항 생성", url_path="generate")
 p_exam = st.Page(exam_cbt.render, title="문제지 CBT", url_path="exam")
-p_history = st.Page(history_view.render, title="복습 기록", url_path="history")
 p_workspace = st.Page(workspace.render, title="내 노트북", url_path="workspace")
 p_admin = st.Page(admin.render, title="관리자 대시보드", url_path="admin")
 is_admin = user == ADMIN_ID
-nav = st.navigation([p_generate, p_exam, p_history, p_workspace] + ([p_admin] if is_admin else []),
+nav = st.navigation([p_home, p_generate, p_exam, p_workspace] + ([p_admin] if is_admin else []),
                     position="hidden")
-st.session_state["_pages"] = {"workspace": p_workspace, "generate": p_generate, "exam": p_exam}
+st.session_state["_pages"] = {"home": p_home, "workspace": p_workspace, "generate": p_generate, "exam": p_exam}
 
 ui.topbar(user)
 with st.sidebar:
     st.markdown(f'<div class="tree-head"><span>{user}</span></div>', unsafe_allow_html=True)
     nodes = [
         (0, "root", None, False),
+        (1, "홈 (오늘 복습·통계·기록)", p_home, False),
         (1, "문항 출제", None, False),
         (2, "AI 문항 생성", p_generate, True),
-        (1, "학습 공간", None, False),
+        (1, "CBT 응시", None, False),
+        (2, "문제지 CBT", p_exam, True),
+        (1, "학습 공간", None, not is_admin),
         (2, "내 노트북", p_workspace, True),
-        (1, "CBT 응시", None, not is_admin),
-        (2, "문제지 CBT", p_exam, False),
-        (2, "복습 기록", p_history, True),
     ]
     if is_admin:
         nodes += [(1, "관리", None, True), (2, "관리자 대시보드", p_admin, True)]
