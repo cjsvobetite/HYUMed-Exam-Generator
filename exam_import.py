@@ -330,13 +330,15 @@ def _expand(b, pad):
 # ─── 2단계: 정답·해설 ───
 
 def solve_exam(questions: list[Question], model: str = "gpt-4o", incomplete_mode: str = "mark",
-               term_rule: str = "", on_progress=None) -> list[str]:
-    """questions를 제자리에서 채운다. 경고 목록을 돌려준다."""
+               term_rule: str = "", on_progress=None, extra: str = "") -> list[str]:
+    """questions를 제자리에서 채운다. 경고 목록을 돌려준다. extra: 사용자 해설 요청 (최우선)."""
     batches = [questions[i:i + _SOLVE_BATCH] for i in range(0, len(questions), _SOLVE_BATCH)]
     prompt = _SOLVE_PROMPT.format(
         incomplete_rule=_FILL_RULE if incomplete_mode == "fill" else _MARK_RULE,
         term_rule=f"- 의학용어 표기: {term_rule}" if term_rule else "",
     )
+    if extra.strip():
+        prompt += f"\n\n★ 사용자 해설 요청 (위 규칙보다 우선, 단 JSON 형식은 지킬 것):\n{extra.strip()}"
     warnings = []
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
         futures = {pool.submit(_solve_batch, b, model, prompt, incomplete_mode): b for b in batches}
