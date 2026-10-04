@@ -1,6 +1,7 @@
 import time
+import types
 
-from openai import RateLimitError
+from openai import BadRequestError, PermissionDeniedError, RateLimitError
 
 from blueprint import extract_topics, make_blueprint, render_blueprint
 from llm import completion_kwargs, get_client, input_limit, max_output_tokens
@@ -35,14 +36,35 @@ def _trim_to_limit(text: str, max_tokens: int) -> tuple[str, bool]:
     return text[:limit_chars], True
 
 
+# 스트리밍이 막힌 모델 (예: 조직 인증 전의 gpt-5 — OpenAI가 스트리밍에 조직 인증을 요구)
+_NO_STREAM: set[str] = set()
+
+
+def _as_stream(resp):
+    """스트리밍 없이 받은 응답을 스트리밍 조각 하나처럼 돌려준다."""
+    choice = resp.choices[0]
+    delta = types.SimpleNamespace(content=choice.message.content or "")
+    yield types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta, finish_reason=choice.finish_reason)])
+
+
+def _create(model, messages, max_tokens):
+    kwargs = completion_kwargs(model, max_tokens, temperature=0.4)
+    if model not in _NO_STREAM:
+        try:
+            return get_client().chat.completions.create(messages=messages, stream=True, **kwargs)
+        except (BadRequestError, PermissionDeniedError) as e:
+            text = str(e).lower()
+            if "stream" not in text and "verif" not in text:
+                raise
+            _NO_STREAM.add(model)
+    return _as_stream(get_client().chat.completions.create(messages=messages, **kwargs))
+
+
 def _call_with_retry(model, messages, max_tokens):
     """429(rate limit) 발생 시 지수 백오프로 최대 MAX_RETRY회 재시도."""
     for retry in range(MAX_RETRY + 1):
         try:
-            return get_client().chat.completions.create(
-                messages=messages, stream=True,
-                **completion_kwargs(model, max_tokens, temperature=0.4),
-            )
+            return _create(model, messages, max_tokens)
         except RateLimitError as e:
             err = str(e)
             # 「Request too large」: 재시도해도 해결 안 됨 → 즉시 안내

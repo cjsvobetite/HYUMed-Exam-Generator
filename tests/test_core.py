@@ -136,3 +136,31 @@ def test_login_locks_after_five_failures(monkeypatch):
     monkeypatch.setattr(auth.time, "time", lambda: 10**12)   # 잠금 시간이 지나면 다시 로그인
     assert auth.locked_for("carol") == 0 and auth.login("carol", "1234")
     assert auth.fails_left("carol") == auth.MAX_FAILS
+
+
+def test_generation_falls_back_when_streaming_needs_verification(monkeypatch):
+    """조직 인증 전에는 gpt-5 스트리밍이 거절된다 → 스트리밍 없이 다시 불러 같은 결과를 낸다."""
+    import types
+
+    import httpx
+    from openai import BadRequestError
+
+    import question_generator as qg
+
+    calls = []
+
+    def create(messages, stream=False, **kw):
+        calls.append(stream)
+        if stream:
+            resp = httpx.Response(400, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+            raise BadRequestError("Your organization must be verified to stream this model.", response=resp, body=None)
+        msg = types.SimpleNamespace(content="본문")
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg, finish_reason="stop")])
+
+    client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    monkeypatch.setattr(qg, "get_client", lambda: client)
+    monkeypatch.setattr(qg, "_NO_STREAM", set())
+    chunks = list(qg._call_with_retry("gpt-5", [{"role": "user", "content": "x"}], 1000))
+    assert chunks[0].choices[0].delta.content == "본문" and chunks[0].choices[0].finish_reason == "stop"
+    list(qg._call_with_retry("gpt-5", [], 1000))
+    assert calls == [True, False, False]                 # 한 번 막히면 그 모델은 바로 비스트리밍
